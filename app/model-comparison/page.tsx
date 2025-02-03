@@ -1,25 +1,65 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { BarChart } from "@/components/charts"
+import { useToast } from "@/components/ui/use-toast"
 
-const modelData = [
-  { name: "Random Forest", accuracy: 0.92, precision: 0.9, recall: 0.94, f1Score: 0.92 },
-  { name: "Logistic Regression", accuracy: 0.88, precision: 0.87, recall: 0.89, f1Score: 0.88 },
-  { name: "SVM", accuracy: 0.9, precision: 0.89, recall: 0.91, f1Score: 0.9 },
-  { name: "Neural Network", accuracy: 0.93, precision: 0.92, recall: 0.94, f1Score: 0.93 },
-]
+interface ModelMetrics {
+  name: string
+  accuracy: number
+  precision: number
+  recall: number
+  f1Score: number
+  trainingTime: number
+  timestamp: string
+}
 
 export default function ModelComparison() {
+  const { toast } = useToast()
   const [selectedMetric, setSelectedMetric] = useState("accuracy")
+  const [models, setModels] = useState<ModelMetrics[]>([])
+  const [isLoading, setIsLoading] = useState(true)
 
-  const chartData = modelData.map((model) => ({
-    name: model.name,
-    value: model[selectedMetric as keyof typeof model],
-  }))
+  useEffect(() => {
+    fetchModelMetrics()
+  }, [])
+
+  const fetchModelMetrics = async () => {
+    try {
+      setIsLoading(true)
+      const response = await fetch('/api/model/metrics')
+      if (!response.ok) throw new Error('Failed to fetch metrics')
+      
+      const data = await response.json()
+      setModels(data)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch model metrics",
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const getChartData = () => {
+    return models.map((model) => ({
+      name: model.name,
+      value: model[selectedMetric as keyof typeof model] as number,
+    }))
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -40,11 +80,18 @@ export default function ModelComparison() {
                 <SelectItem value="precision">Precision</SelectItem>
                 <SelectItem value="recall">Recall</SelectItem>
                 <SelectItem value="f1Score">F1 Score</SelectItem>
+                <SelectItem value="trainingTime">Training Time</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="h-[300px]">
-            <BarChart data={chartData} />
+            {models.length > 0 ? (
+              <BarChart data={getChartData()} />
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                No model metrics available
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -54,31 +101,40 @@ export default function ModelComparison() {
           <CardTitle>Detailed Metrics</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Model</TableHead>
-                <TableHead>Accuracy</TableHead>
-                <TableHead>Precision</TableHead>
-                <TableHead>Recall</TableHead>
-                <TableHead>F1 Score</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {modelData.map((model) => (
-                <TableRow key={model.name}>
-                  <TableCell>{model.name}</TableCell>
-                  <TableCell>{model.accuracy.toFixed(2)}</TableCell>
-                  <TableCell>{model.precision.toFixed(2)}</TableCell>
-                  <TableCell>{model.recall.toFixed(2)}</TableCell>
-                  <TableCell>{model.f1Score.toFixed(2)}</TableCell>
+          {models.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Accuracy</TableHead>
+                  <TableHead>Precision</TableHead>
+                  <TableHead>Recall</TableHead>
+                  <TableHead>F1 Score</TableHead>
+                  <TableHead>Training Time (s)</TableHead>
+                  <TableHead>Trained At</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {models.map((model) => (
+                  <TableRow key={model.name}>
+                    <TableCell className="font-medium">{model.name}</TableCell>
+                    <TableCell>{(model.accuracy * 100).toFixed(2)}%</TableCell>
+                    <TableCell>{(model.precision * 100).toFixed(2)}%</TableCell>
+                    <TableCell>{(model.recall * 100).toFixed(2)}%</TableCell>
+                    <TableCell>{(model.f1Score * 100).toFixed(2)}%</TableCell>
+                    <TableCell>{model.trainingTime.toFixed(2)}s</TableCell>
+                    <TableCell>{new Date(model.timestamp).toLocaleString()}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              No models have been trained yet. Train a model to see comparison metrics.
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
   )
 }
-
