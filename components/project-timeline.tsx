@@ -1,28 +1,34 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
-const timelineData = [
-  { id: 1, title: "Customer Churn Prediction", date: "2023-07-15", status: "Completed" },
-  { id: 2, title: "Sales Forecast", date: "2023-07-10", status: "In Progress" },
-  { id: 3, title: "Sentiment Analysis", date: "2023-07-05", status: "Planned" },
-]
+interface Project {
+  id: string
+  name: string
+  type: string
+  accuracy?: number
+  createdAt: Date
+}
 
-export function ProjectTimeline() {
+interface ProjectTimelineProps {
+  projects: Project[]
+}
+
+export function ProjectTimeline({ projects }: ProjectTimelineProps) {
   return (
     <div className="space-y-4">
-      {timelineData.map((item) => (
-        <Card key={item.id}>
+      {projects.map((project) => (
+        <Card key={project.id}>
           <CardContent className="flex justify-between items-center p-4">
             <div>
-              <h3 className="font-semibold">{item.title}</h3>
-              <p className="text-sm text-gray-500">{item.date}</p>
+              <h3 className="font-semibold">{project.name}</h3>
+              <p className="text-sm text-gray-500">{new Date(project.createdAt).toLocaleDateString()}</p>
             </div>
             <Badge
               variant={
-                item.status === "Completed" ? "default" : item.status === "In Progress" ? "secondary" : "outline"
+                project.accuracy ? "default" : "outline"
               }
             >
-              {item.status}
+              {project.accuracy ? `${(project.accuracy * 100).toFixed(1)}% Accuracy` : "In Progress"}
             </Badge>
           </CardContent>
         </Card>
@@ -30,4 +36,3 @@ export function ProjectTimeline() {
     </div>
   )
 }
-

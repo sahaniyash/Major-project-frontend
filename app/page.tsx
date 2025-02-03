@@ -1,43 +1,43 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { AreaChart, BarChart, PieChart, ScatterPlot } from "@/components/charts"
 import { ArrowUpRight, Upload, Brain, TrendingUp } from "lucide-react"
 import { useUser } from "@clerk/nextjs"
-import ProjectTimeline from "@/components/ProjectTimeline" // Import the ProjectTimeline component
+import { ProjectTimeline } from "@/components/project-timeline"
 
-const performanceData = [
-  { name: "Jan", value: 400 },
-  { name: "Feb", value: 300 },
-  { name: "Mar", value: 200 },
-  { name: "Apr", value: 278 },
-  { name: "May", value: 189 },
-  { name: "Jun", value: 239 },
-  { name: "Jul", value: 349 },
-]
-
-const modelDistribution = [
-  { name: "Classification", value: 400 },
-  { name: "Regression", value: 300 },
-  { name: "Clustering", value: 200 },
-  { name: "Neural Networks", value: 278 },
-]
-
-const scatterData = [
-  { x: 100, y: 200, z: 200 },
-  { x: 120, y: 100, z: 260 },
-  { x: 170, y: 300, z: 400 },
-  { x: 140, y: 250, z: 280 },
-  { x: 150, y: 400, z: 500 },
-  { x: 110, y: 280, z: 200 },
-]
+interface Project {
+  id: string
+  name: string
+  type: string
+  accuracy?: number
+  createdAt: Date
+}
 
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview")
   const {user} = useUser();
+  const [projects, setProjects] = useState<Project[]>([])
+
+  useEffect(() => {
+    // Fetch projects when component mounts
+    fetchProjects()
+  }, [])
+
+  const fetchProjects = async () => {
+    try {
+      const response = await fetch('/api/projects')
+      if (response.ok) {
+        const data = await response.json()
+        setProjects(data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch projects:', error)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -57,8 +57,8 @@ export default function Dashboard() {
             <Upload className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">25</div>
-            <p className="text-xs text-muted-foreground">+2 from last month</p>
+            <div className="text-2xl font-bold">0</div>
+            <p className="text-xs text-muted-foreground">No projects yet</p>
           </CardContent>
         </Card>
         <Card>
@@ -67,8 +67,8 @@ export default function Dashboard() {
             <Brain className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">12</div>
-            <p className="text-xs text-muted-foreground">+3 from last month</p>
+            <div className="text-2xl font-bold">0</div>
+            <p className="text-xs text-muted-foreground">No models trained</p>
           </CardContent>
         </Card>
         <Card>
@@ -77,8 +77,8 @@ export default function Dashboard() {
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">92.6%</div>
-            <p className="text-xs text-muted-foreground">+0.6% from last month</p>
+            <div className="text-2xl font-bold">-</div>
+            <p className="text-xs text-muted-foreground">No data available</p>
           </CardContent>
         </Card>
       </div>
@@ -96,7 +96,7 @@ export default function Dashboard() {
                 <CardTitle>Performance Over Time</CardTitle>
               </CardHeader>
               <CardContent className="h-[300px]">
-                <AreaChart data={performanceData} />
+                <AreaChart data={[]} />
               </CardContent>
             </Card>
             <Card>
@@ -104,7 +104,7 @@ export default function Dashboard() {
                 <CardTitle>Model Distribution</CardTitle>
               </CardHeader>
               <CardContent className="h-[300px]">
-                <PieChart data={modelDistribution} />
+                <PieChart data={[]} />
               </CardContent>
             </Card>
           </div>
@@ -115,7 +115,7 @@ export default function Dashboard() {
               <CardTitle>Project Performance</CardTitle>
             </CardHeader>
             <CardContent className="h-[400px]">
-              <ScatterPlot data={scatterData} />
+              <ScatterPlot data={[]} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -125,7 +125,7 @@ export default function Dashboard() {
               <CardTitle>Model Comparison</CardTitle>
             </CardHeader>
             <CardContent>
-              <BarChart data={performanceData} />
+              <BarChart data={[]} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -136,10 +136,9 @@ export default function Dashboard() {
           <CardTitle>Recent Projects</CardTitle>
         </CardHeader>
         <CardContent>
-          <ProjectTimeline />
+            <ProjectTimeline projects={projects} />
         </CardContent>
       </Card>
     </div>
   )
 }
-
