@@ -8,11 +8,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Slider } from "@/components/ui/slider"
 import { useToast } from "@/components/ui/use-toast"
 import { useRouter } from "next/navigation"
+import { Progress } from "@/components/ui/progress"
 
 interface DatasetInfo {
+  datasetId: string
   columns: string[]
   shape: [number, number]
+  columnTypes: Record<string, string>
   targetColumn?: string
+  summary: {
+    missingValues: Record<string, number>
+    uniqueValues: Record<string, number>
+  }
 }
 
 export default function ModelSelection() {
@@ -20,9 +27,11 @@ export default function ModelSelection() {
   const { toast } = useToast()
   const [modelType, setModelType] = useState("")
   const [isUploading, setIsUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [datasetInfo, setDatasetInfo] = useState<DatasetInfo | null>(null)
   const [selectedModel, setSelectedModel] = useState("")
+  const [targetColumn, setTargetColumn] = useState<string>("")
   const [hyperparameters, setHyperparameters] = useState({
     learningRate: 0.01,
     regularization: 0.1
@@ -31,7 +40,30 @@ export default function ModelSelection() {
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
+      // Validate file size (e.g., max 100MB)
+      if (file.size > 100 * 1024 * 1024) {
+        toast({
+          title: "Error",
+          description: "File size must be less than 100MB",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Validate file type
+      const validTypes = ['.csv', '.xlsx', '.json']
+      const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase()
+      if (!validTypes.includes(fileExtension)) {
+        toast({
+          title: "Error",
+          description: "Invalid file type. Please upload CSV, Excel, or JSON file",
+          variant: "destructive"
+        })
+        return
+      }
+
       setSelectedFile(file)
+      setDatasetInfo(null) // Reset previous dataset info
     }
   }
 
@@ -46,6 +78,7 @@ export default function ModelSelection() {
     }
 
     setIsUploading(true)
+    setUploadProgress(0)
     const formData = new FormData()
     formData.append('file', selectedFile)
 
@@ -55,32 +88,40 @@ export default function ModelSelection() {
         body: formData,
       })
 
-      if (response.ok) {
-        const data = await response.json()
-        setDatasetInfo(data)
-        toast({
-          title: "Success",
-          description: "Dataset uploaded and analyzed successfully",
-        })
-      } else {
-        throw new Error('Upload failed')
+      if (!response.ok) {
+        throw new Error(await response.text())
       }
+
+      const data = await response.json()
+      setDatasetInfo(data)
+      
+      // Set default target column if available
+      if (data.targetColumn) {
+        setTargetColumn(data.targetColumn)
+      }
+
+      toast({
+        title: "Success",
+        description: "Dataset uploaded and analyzed successfully",
+      })
     } catch (error) {
+      console.error('Upload error:', error)
       toast({
         title: "Error",
-        description: "Failed to upload and analyze dataset",
+        description: error instanceof Error ? error.message : "Failed to upload and analyze dataset",
         variant: "destructive"
       })
     } finally {
       setIsUploading(false)
+      setUploadProgress(100)
     }
   }
 
   const handleTrainModel = async () => {
-    if (!selectedModel || !datasetInfo) {
+    if (!selectedModel || !datasetInfo || !targetColumn) {
       toast({
         title: "Error",
-        description: "Please select a model and upload dataset first",
+        description: "Please select a model, upload dataset, and specify target column",
         variant: "destructive"
       })
       return
@@ -95,23 +136,28 @@ export default function ModelSelection() {
         body: JSON.stringify({
           modelType: selectedModel,
           hyperparameters,
-          targetColumn: datasetInfo.targetColumn,
+          datasetId: datasetInfo.datasetId,
+          targetColumn,
         }),
       })
 
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Model training started successfully",
-        })
-        router.push('/model-comparison') // Redirect to model comparison page
-      } else {
-        throw new Error('Training failed')
+      if (!response.ok) {
+        throw new Error(await response.text())
       }
+
+      const data = await response.json()
+      toast({
+        title: "Success",
+        description: "Model training started successfully",
+      })
+      
+      // Redirect to model comparison page with the job ID
+      router.push(`/model-comparison?jobId=${data.jobId}`)
     } catch (error) {
+      console.error('Training error:', error)
       toast({
         title: "Error",
-        description: "Failed to start model training",
+        description: error instanceof Error ? error.message : "Failed to start model training",
         variant: "destructive"
       })
     }
@@ -132,6 +178,7 @@ export default function ModelSelection() {
               type="file" 
               onChange={handleFileSelect} 
               accept=".csv,.xlsx,.json"
+              disabled={isUploading}
             />
             <Button 
               onClick={handleUpload}
@@ -140,18 +187,45 @@ export default function ModelSelection() {
               {isUploading ? "Analyzing..." : "Upload & Analyze"}
             </Button>
           </div>
+          
+          {isUploading && (
+            <Progress value={uploadProgress} className="mt-4" />
+          )}
+
           {datasetInfo && (
-            <div className="mt-4 p-4 bg-muted rounded-lg">
+            <div className="mt-4 p-4 bg-muted rounded-lg space-y-2">
               <h3 className="font-semibold mb-2">Dataset Information</h3>
               <p>Rows: {datasetInfo.shape[0]}</p>
               <p>Columns: {datasetInfo.shape[1]}</p>
-              <p>Features: {datasetInfo.columns.join(", ")}</p>
+              
+              <div>
+                <h4 className="font-medium">Column Types:</h4>
+                <ul className="list-disc list-inside">
+                  {Object.entries(datasetInfo.columnTypes).map(([col, type]) => (
+                    <li key={col}>{col}: {type}</li>
+                  ))}
+                </ul>
+              </div>
+
+              <div>
+                <h4 className="font-medium">Target Column:</h4>
+                <Select value={targetColumn} onValueChange={setTargetColumn}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select target column" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {datasetInfo.columns.map(col => (
+                      <SelectItem key={col} value={col}>{col}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {datasetInfo && (
+      {datasetInfo && targetColumn && (
         <>
           <Card className="mb-8">
             <CardHeader>
@@ -228,6 +302,9 @@ export default function ModelSelection() {
                     step={0.01}
                     onValueChange={([value]) => setHyperparameters(prev => ({ ...prev, learningRate: value }))}
                   />
+                  <span className="text-sm text-muted-foreground mt-1">
+                    Current: {hyperparameters.learningRate}
+                  </span>
                 </div>
                 <div>
                   <label className="block mb-2">Regularization Strength</label>
@@ -237,6 +314,9 @@ export default function ModelSelection() {
                     step={0.1}
                     onValueChange={([value]) => setHyperparameters(prev => ({ ...prev, regularization: value }))}
                   />
+                  <span className="text-sm text-muted-foreground mt-1">
+                    Current: {hyperparameters.regularization}
+                  </span>
                 </div>
               </div>
             </CardContent>
@@ -248,7 +328,12 @@ export default function ModelSelection() {
               <CardDescription>Start the model training process</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={handleTrainModel} disabled={!selectedModel}>Train Model</Button>
+              <Button 
+                onClick={handleTrainModel} 
+                disabled={!selectedModel || !targetColumn}
+              >
+                Train Model
+              </Button>
             </CardContent>
           </Card>
         </>

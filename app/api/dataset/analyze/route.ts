@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
-import { parse } from 'papaparse' // for CSV parsing
-import * as XLSX from 'xlsx' // for Excel files
+import { parse } from 'papaparse'
+import * as XLSX from 'xlsx'
+import dbConnect from '@/lib/mongodb'
+import { Dataset } from '../../models/ModelMetrics'
 
 export async function POST(req: Request) {
   try {
+    await dbConnect()
     const formData = await req.formData()
     const file = formData.get('file') as File
 
@@ -37,11 +40,10 @@ export async function POST(req: Request) {
       )
     }
 
-    // Analyze dataset
     const columns = Object.keys(data[0] || {})
     const shape: [number, number] = [data.length, columns.length]
 
-    // Basic type inference for columns
+    // Analyze dataset
     const columnTypes = columns.reduce((acc, col) => {
       const values = data.map(row => row[col]).filter(val => val != null)
       const isNumeric = values.every(val => !isNaN(Number(val)))
@@ -49,28 +51,42 @@ export async function POST(req: Request) {
       return acc
     }, {} as Record<string, string>)
 
-    // Suggest target column (last column or one with specific keywords)
     const targetColumn = columns.find(col => 
       col.toLowerCase().includes('target') || 
       col.toLowerCase().includes('label') ||
       col.toLowerCase().includes('class')
     ) || columns[columns.length - 1]
 
+    const summary = {
+      missingValues: columns.reduce((acc, col) => {
+        acc[col] = data.filter(row => row[col] == null).length
+        return acc
+      }, {} as Record<string, number>),
+      uniqueValues: columns.reduce((acc, col) => {
+        acc[col] = new Set(data.map(row => row[col])).size
+        return acc
+      }, {} as Record<string, number>)
+    }
+
+    // Store dataset info
+    const dataset = await Dataset.create({
+      name: file.name,
+      fileName: file.name,
+      columns,
+      rowCount: shape[0],
+      columnTypes,
+      summary,
+      targetColumn,
+      userId: req.headers.get('user-id') // You'll need to pass this from the client
+    })
+
     return NextResponse.json({
+      datasetId: dataset._id,
       columns,
       shape,
       columnTypes,
       targetColumn,
-      summary: {
-        missingValues: columns.reduce((acc, col) => {
-          acc[col] = data.filter(row => row[col] == null).length
-          return acc
-        }, {} as Record<string, number>),
-        uniqueValues: columns.reduce((acc, col) => {
-          acc[col] = new Set(data.map(row => row[col])).size
-          return acc
-        }, {} as Record<string, number>)
-      }
+      summary
     })
   } catch (error) {
     console.error('Error analyzing dataset:', error)
