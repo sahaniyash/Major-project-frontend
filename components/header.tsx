@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { Bell, Search, User, Plus, BarChart, Brain, Database } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { SignOutButton } from "@clerk/nextjs"
+import { SignOutButton, useClerk } from "@clerk/nextjs"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,6 +26,7 @@ import {
 
 export function Header() {
   const [searchQuery, setSearchQuery] = useState("")
+  const {openUserProfile} = useClerk();
   // const [isAuthenticated, setIsAuthenticated] = useState(false) // This should be replaced with actual auth state
   // const router = useRouter()
 
@@ -115,6 +116,9 @@ export function Header() {
                   </DropdownMenuItem>
                 </>
               )} */}
+              <Button onClick={() => openUserProfile()} className="w-full" variant="outline">
+                Update Profile
+              </Button>
               <SignOutButton/>
             </DropdownMenuContent>
           </DropdownMenu>
