@@ -1,21 +1,46 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { useUser } from "@clerk/nextjs"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Upload, Trash2, Eye } from "lucide-react"
 
-const sampleDatasets = [
-  { id: 1, name: "Customer Churn", rows: 5000, columns: 20, lastModified: "2023-06-15" },
-  { id: 2, name: "Sales Prediction", rows: 10000, columns: 15, lastModified: "2023-06-10" },
-  { id: 3, name: "Customer Segmentation", rows: 8000, columns: 25, lastModified: "2023-06-05" },
-]
+interface Dataset {
+  id: number;
+  name: string;
+  rows: number;
+  columns: number;
+  lastModified: string;
+  userId: string;
+}
 
 export default function DataManagement() {
-  const [datasets, setDatasets] = useState(sampleDatasets)
+  const { user } = useUser();
+  const [datasets, setDatasets] = useState<Dataset[]>([])
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchUserDatasets = async () => {
+      try {
+        // Replace with your actual API endpoint
+        const response = await fetch(`/api/datasets?userId=${user?.id}`);
+        const data = await response.json();
+        setDatasets(data);
+      } catch (error) {
+        console.error('Error fetching datasets:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchUserDatasets();
+    }
+  }, [user]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files) {
@@ -23,27 +48,47 @@ export default function DataManagement() {
     }
   }
 
-  const handleUpload = () => {
-    if (selectedFile) {
-      // Here you would typically send the file to your backend
-      console.log("Uploading file:", selectedFile.name)
-      // For demonstration, we'll just add it to the list
-      setDatasets([
-        ...datasets,
-        {
-          id: datasets.length + 1,
-          name: selectedFile.name,
-          rows: Math.floor(Math.random() * 10000),
-          columns: Math.floor(Math.random() * 30),
-          lastModified: new Date().toISOString().split("T")[0],
-        },
-      ])
-      setSelectedFile(null)
+  const handleUpload = async () => {
+    if (selectedFile && user) {
+      try {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('userId', user.id);
+
+        // Replace with your actual API endpoint
+        const response = await fetch('http://127.0.0.1:5000/dataset/add_dataset', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) throw new Error('Upload failed');
+
+        const newDataset = await response.json();
+        setDatasets([...datasets, newDataset]);
+        setSelectedFile(null);
+      } catch (error) {
+        console.error('Error uploading file:', error);
+      }
     }
   }
 
-  const handleDelete = (id: number) => {
-    setDatasets(datasets.filter((dataset) => dataset.id !== id))
+  const handleDelete = async (id: number) => {
+    try {
+      // Replace with your actual API endpoint
+      const response = await fetch(`/api/datasets/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) throw new Error('Delete failed');
+
+      setDatasets(datasets.filter((dataset) => dataset.id !== id));
+    } catch (error) {
+      console.error('Error deleting dataset:', error);
+    }
+  }
+
+  if (!user) {
+    return <div>Please sign in to view your datasets.</div>;
   }
 
   return (
@@ -71,37 +116,43 @@ export default function DataManagement() {
           <CardTitle>Your Datasets</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Rows</TableHead>
-                <TableHead>Columns</TableHead>
-                <TableHead>Last Modified</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {datasets.map((dataset) => (
-                <TableRow key={dataset.id}>
-                  <TableCell>{dataset.name}</TableCell>
-                  <TableCell>{dataset.rows}</TableCell>
-                  <TableCell>{dataset.columns}</TableCell>
-                  <TableCell>{dataset.lastModified}</TableCell>
-                  <TableCell>
-                    <div className="flex space-x-2">
-                      <Button variant="ghost" size="icon">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(dataset.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          {isLoading ? (
+            <div>Loading your datasets...</div>
+          ) : datasets.length === 0 ? (
+            <div>No datasets found. Upload your first dataset above.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Rows</TableHead>
+                  <TableHead>Columns</TableHead>
+                  <TableHead>Last Modified</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {datasets.map((dataset) => (
+                  <TableRow key={dataset.id}>
+                    <TableCell>{dataset.name}</TableCell>
+                    <TableCell>{dataset.rows}</TableCell>
+                    <TableCell>{dataset.columns}</TableCell>
+                    <TableCell>{dataset.lastModified}</TableCell>
+                    <TableCell>
+                      <div className="flex space-x-2">
+                        <Button variant="ghost" size="icon">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(dataset.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

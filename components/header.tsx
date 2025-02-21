@@ -119,7 +119,7 @@ export function Header() {
               <Button onClick={() => openUserProfile()} className="w-full" variant="outline">
                 Update Profile
               </Button>
-              <SignOutButton/>
+              <SignOutButton />
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
