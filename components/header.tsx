@@ -1,12 +1,12 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Bell, Search, User, Plus, BarChart, Brain, Database } from "lucide-react"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { SignOutButton, useClerk } from "@clerk/nextjs"
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Bell, Search, User, Plus, BarChart, Brain, Database } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { SignOutButton, useClerk, useAuth, useUser } from "@clerk/nextjs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -22,21 +22,56 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog"
+} from "@/components/ui/dialog";
 
 export function Header() {
-  const [searchQuery, setSearchQuery] = useState("")
-  const {openUserProfile} = useClerk();
-  // const [isAuthenticated, setIsAuthenticated] = useState(false) // This should be replaced with actual auth state
-  // const router = useRouter()
+  const [searchQuery, setSearchQuery] = useState("");
+  const { openUserProfile } = useClerk();
+  const { userId } = useAuth();
+  const { user } = useUser();
+  const router = useRouter();
 
-  // const handleSignOut = () => {
-  //   // Implement your sign-out logic here
-  //   // For example:
-  //   // await signOut()
-  //   setIsAuthenticated(false)
-  //   router.push("/signin")
-  // }
+  const handleUserDelete = async () => {
+    if (!userId || !user) {
+      console.error("User ID or user object missing");
+      return;
+    }
+
+    if (!confirm("Are you sure you want to delete your account? This cannot be undone.")) {
+      return;
+    }
+
+    try {
+      // Delete from your backend (MongoDB)
+      const response = await fetch(
+        `http://127.0.0.1:5000/user/delete_user?userId=${userId}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+          },
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete user from database");
+      }
+
+      const data = await response.json();
+      console.log("Delete response from backend:", data);
+
+      // Delete from Clerk
+      await user.delete();
+      console.log("User deleted from Clerk");
+      router.push("/"); // Redirect after deletion
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      // alert("Failed to delete account: " + error.message);
+    }
+  };
 
   return (
     <header className="border-b border-border bg-card">
@@ -98,33 +133,28 @@ export function Header() {
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {/* {isAuthenticated ? (
-                <>
-                  <DropdownMenuItem>Profile</DropdownMenuItem>
-                  <DropdownMenuItem>API Keys</DropdownMenuItem>
-                  <DropdownMenuItem>Settings</DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={handleSignOut}>Sign out</DropdownMenuItem>
-                </>
-              ) : (
-                <>
-                  <DropdownMenuItem>
-                    <Link href="/signin">Sign in</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Link href="/signup">Sign up</Link>
-                  </DropdownMenuItem>
-                </>
-              )} */}
-              <Button onClick={() => openUserProfile()} className="w-full" variant="outline">
-                Update Profile
-              </Button>
-              <SignOutButton />
+              <DropdownMenuItem>
+                <Button onClick={() => openUserProfile()} className="w-full" variant="outline">
+                  Update Profile
+                </Button>
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <Button
+                  onClick={handleUserDelete}
+                  className="w-full"
+                  variant="destructive" // Assuming your UI lib has this variant
+                >
+                  Delete Account
+                </Button>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <SignOutButton />
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
     </header>
-  )
+  );
 }
-
