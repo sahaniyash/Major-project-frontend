@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
+import "chart.js/auto";
+import { Line, Bar, Scatter, Doughnut } from "react-chartjs-2";
 
 interface Dataset {
   _id: string;
@@ -31,6 +33,12 @@ export default function Preprocess() {
   const [normalizeOption, setNormalizeOption] = useState<string>("minmax");
   const [isLoading, setIsLoading] = useState(true);
   const [mongoUserId, setMongoUserId] = useState<string | null>(null);
+  const [columnNames, setColumnNames] = useState<string[]>([]);
+  const [chartType, setChartType] = useState<string>("scatter");
+  const [xAxis, setXAxis] = useState<string>("");
+  const [yAxis, setYAxis] = useState<string>("");
+  const [chartData, setChartData] = useState<any>(null);
+  const [savedCharts, setSavedCharts] = useState<any[]>([]);
 
   // Fetch datasets on mount
   useEffect(() => {
@@ -181,6 +189,100 @@ export default function Preprocess() {
     }
   };
 
+  // Modified handleGenerateVisualization to save chart
+  const handleGenerateVisualization = async () => {
+    if (!selectedDatasetId || !chartType || !xAxis || !yAxis) {
+      toast({ title: "Error", description: "Please select all visualization options", variant: "destructive" });
+      return;
+    }
+
+    try {
+      const response = await fetch("http://127.0.0.1:5000/dataset/visualize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset_id: selectedDatasetId, chart_type: chartType, x_axis: xAxis, y_axis: yAxis }),
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error((await response.json()).error || "Visualization failed");
+      const data = await response.json();
+
+      const chartConfig = {
+        labels: data.x_data,
+        datasets: [{
+          label: `${xAxis} vs ${yAxis}`,
+          data: chartType === "scatter" ? data.x_data.map((x: number, i: number) => ({ x, y: data.y_data[i] })) : data.y_data,
+          backgroundColor: "rgba(75, 192, 192, 0.2)",
+          borderColor: "rgba(75, 192, 192, 1)",
+          borderWidth: 1,
+        }],
+      };
+      setChartData(chartConfig);
+
+      // Save the chart to backend
+      const saveResponse = await fetch("http://127.0.0.1:5000/dataset/save_visualization", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          dataset_id: selectedDatasetId,
+          chart_type: chartType,
+          x_axis: xAxis,
+          y_axis: yAxis,
+          chart_data: chartConfig
+        }),
+        credentials: "include",
+      });
+      if (!saveResponse.ok) throw new Error((await saveResponse.json()).error || "Failed to save chart");
+      toast({ title: "Success", description: "Chart generated and saved", });
+    } catch (error) {
+      console.error("Error generating/saving visualization:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate/save visualization",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderChart = () => {
+      if (!chartData) return <p>Select options and generate a chart to view here.</p>;
+      switch (chartType) {
+        case "scatter":
+          return <Scatter data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />;
+        case "bar":
+          return <Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />;
+        case "line":
+          return <Line data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />;
+        case "histogram": // Simplified histogram as bar chart
+          return <Bar data={{ ...chartData, datasets: [{ ...chartData.datasets[0], barPercentage: 1, categoryPercentage: 1 }] }} options={{ responsive: true, maintainAspectRatio: false }} />;
+        default:
+          return null;
+      }
+    };
+
+  // Fetch column names when dataset changes
+  useEffect(() => {
+    const fetchColumnNames = async () => {
+      if (!selectedDatasetId) {
+        setColumnNames([]);
+        setChartData(null);
+        return;
+      }
+      try {
+        const response = await fetch(`http://127.0.0.1:5000/dataset/get_column_names?dataset_id=${selectedDatasetId}`, {
+          credentials: "include",
+        });
+        if (!response.ok) throw new Error(`Failed to fetch column names: ${await response.text()}`);
+        const data = await response.json();
+        setColumnNames(data.column_names || []);
+      } catch (error) {
+        console.error("Error fetching column names:", error);
+        toast({ title: "Error", description: "Failed to fetch column names", variant: "destructive" });
+        setColumnNames([]);
+      }
+    };
+    fetchColumnNames();
+  }, [selectedDatasetId]);
+
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-6">Data Preprocessing and Visualization</h1>
@@ -274,10 +376,8 @@ export default function Preprocess() {
               <div className="grid gap-4">
                 <div>
                   <label className="block mb-2">Chart Type</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select chart type" />
-                    </SelectTrigger>
+                  <Select onValueChange={setChartType} value={chartType}>
+                    <SelectTrigger><SelectValue placeholder="Select chart type" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="scatter">Scatter Plot</SelectItem>
                       <SelectItem value="bar">Bar Chart</SelectItem>
@@ -288,29 +388,33 @@ export default function Preprocess() {
                 </div>
                 <div>
                   <label className="block mb-2">X-Axis</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select X-axis" />
-                    </SelectTrigger>
+                  <Select onValueChange={setXAxis} value={xAxis}>
+                    <SelectTrigger><SelectValue placeholder="Select X-axis" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="column1">Column 1</SelectItem>
-                      <SelectItem value="column2">Column 2</SelectItem>
+                      {columnNames.map((col) => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div>
                   <label className="block mb-2">Y-Axis</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Y-axis" />
-                    </SelectTrigger>
+                  <Select onValueChange={setYAxis} value={yAxis}>
+                    <SelectTrigger><SelectValue placeholder="Select Y-axis" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="column1">Column 1</SelectItem>
-                      <SelectItem value="column2">Column 2</SelectItem>
+                      {columnNames.map((col) => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <Button>Generate Visualization</Button>
+                <Button onClick={handleGenerateVisualization}>Generate and Save Visualization</Button>
+                <Button variant="outline" onClick={() => window.location.href = '/graphs'}>View Saved Graphs</Button>
+                {chartData && (
+                  <div className="mt-4" style={{ height: "400px" }}>
+                    {renderChart()}
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
