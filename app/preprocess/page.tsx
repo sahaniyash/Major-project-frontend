@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import "chart.js/auto";
-import { Line, Bar, Scatter, Doughnut } from "react-chartjs-2";
+import { Line, Bar, Scatter } from "react-chartjs-2"; // Removed Doughnut since it wasn't used
 
 interface Dataset {
   _id: string;
@@ -22,6 +22,13 @@ interface Dataset {
   remove_duplicate: boolean;
   scaling_and_normalization: boolean;
   increase_the_size_of_dataset: boolean;
+}
+
+interface ChartConfig {
+  chartType: string;
+  xAxis: string;
+  yAxis: string;
+  data: any;
 }
 
 export default function Preprocess() {
@@ -37,8 +44,7 @@ export default function Preprocess() {
   const [chartType, setChartType] = useState<string>("scatter");
   const [xAxis, setXAxis] = useState<string>("");
   const [yAxis, setYAxis] = useState<string>("");
-  const [chartData, setChartData] = useState<any>(null);
-  const [savedCharts, setSavedCharts] = useState<any[]>([]);
+  const [savedCharts, setSavedCharts] = useState<ChartConfig[]>([]); // Store all generated charts locally
 
   // Fetch datasets on mount
   useEffect(() => {
@@ -189,7 +195,6 @@ export default function Preprocess() {
     }
   };
 
-  // Modified handleGenerateVisualization to save chart
   const handleGenerateVisualization = async () => {
     if (!selectedDatasetId || !chartType || !xAxis || !yAxis) {
       toast({ title: "Error", description: "Please select all visualization options", variant: "destructive" });
@@ -216,55 +221,44 @@ export default function Preprocess() {
           borderWidth: 1,
         }],
       };
-      setChartData(chartConfig);
 
-      // Save the chart to backend
-      const saveResponse = await fetch("http://127.0.0.1:5000/dataset/save_visualization", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          dataset_id: selectedDatasetId,
-          chart_type: chartType,
-          x_axis: xAxis,
-          y_axis: yAxis,
-          chart_data: chartConfig
-        }),
-        credentials: "include",
-      });
-      if (!saveResponse.ok) throw new Error((await saveResponse.json()).error || "Failed to save chart");
-      toast({ title: "Success", description: "Chart generated and saved", });
+      // Add the new chart to savedCharts instead of setting chartData
+      setSavedCharts((prev) => [
+        ...prev,
+        { chartType, xAxis, yAxis, data: chartConfig },
+      ]);
+
+      toast({ title: "Success", description: "Chart generated successfully" });
     } catch (error) {
-      console.error("Error generating/saving visualization:", error);
+      console.error("Error generating visualization:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to generate/save visualization",
+        description: error instanceof Error ? error.message : "Failed to generate visualization",
         variant: "destructive",
       });
     }
   };
 
-  const renderChart = () => {
-      if (!chartData) return <p>Select options and generate a chart to view here.</p>;
-      switch (chartType) {
-        case "scatter":
-          return <Scatter data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />;
-        case "bar":
-          return <Bar data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />;
-        case "line":
-          return <Line data={chartData} options={{ responsive: true, maintainAspectRatio: false }} />;
-        case "histogram": // Simplified histogram as bar chart
-          return <Bar data={{ ...chartData, datasets: [{ ...chartData.datasets[0], barPercentage: 1, categoryPercentage: 1 }] }} options={{ responsive: true, maintainAspectRatio: false }} />;
-        default:
-          return null;
-      }
-    };
+  const renderChart = (chart: ChartConfig) => {
+    switch (chart.chartType) {
+      case "scatter":
+        return <Scatter data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
+      case "bar":
+        return <Bar data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
+      case "line":
+        return <Line data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
+      case "histogram":
+        return <Bar data={{ ...chart.data, datasets: [{ ...chart.data.datasets[0], barPercentage: 1, categoryPercentage: 1 }] }} options={{ responsive: true, maintainAspectRatio: false }} />;
+      default:
+        return null;
+    }
+  };
 
   // Fetch column names when dataset changes
   useEffect(() => {
     const fetchColumnNames = async () => {
       if (!selectedDatasetId) {
         setColumnNames([]);
-        setChartData(null);
         return;
       }
       try {
@@ -408,11 +402,21 @@ export default function Preprocess() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Button onClick={handleGenerateVisualization}>Generate and Save Visualization</Button>
-                <Button variant="outline" onClick={() => window.location.href = '/graphs'}>View Saved Graphs</Button>
-                {chartData && (
-                  <div className="mt-4" style={{ height: "400px" }}>
-                    {renderChart()}
+                <Button onClick={handleGenerateVisualization}>Generate Visualization</Button>
+                {/* Removed "View Saved Graphs" button */}
+                {savedCharts.length > 0 && (
+                  <div className="mt-4">
+                    <h2 className="text-xl font-semibold mb-4">Generated Charts</h2>
+                    <div className="grid gap-6">
+                      {savedCharts.map((chart, index) => (
+                        <div key={index} className="border p-4 rounded-lg">
+                          <h3 className="text-lg font-medium mb-2">{`${chart.xAxis} vs ${chart.yAxis} (${chart.chartType})`}</h3>
+                          <div style={{ height: "400px" }}>
+                            {renderChart(chart)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
