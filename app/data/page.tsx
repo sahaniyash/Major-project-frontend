@@ -6,20 +6,39 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Trash2, Eye, Settings } from "lucide-react";
+import { Upload, Eye, Brain } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Dataset {
   _id: string;
   filename: string;
   dataset_description: string;
   is_preprocessing_done: boolean;
-  Is_preprocessing_form_filled: boolean;
   start_preprocessing: boolean;
-  test_dataset_percentage: number;
+}
+
+interface PreprocessingRecommendations {
+  fill_empty_rows_using: "mean" | "median" | "mode" | "none";
   remove_duplicate: boolean;
-  scaling_and_normalization: boolean;
+  standardization_necessary: boolean;
+  normalization_necessary: boolean;
+  test_dataset_percentage: number;
   increase_the_size_of_dataset: boolean;
+  fill_string_type_columns: boolean;
+  dimensionality_reduction: boolean;
+  remove_highly_correlated_columns: boolean;
 }
 
 export default function DataManagement() {
@@ -29,53 +48,37 @@ export default function DataManagement() {
   const [projectName, setProjectName] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [mongoUserId, setMongoUserId] = useState<string | null>(null);
+  const [recommendations, setRecommendations] = useState<PreprocessingRecommendations | null>(null);
+  const [editedRecommendations, setEditedRecommendations] = useState<PreprocessingRecommendations | null>(null);
+  const [selectedDatasetId, setSelectedDatasetId] = useState<string | null>(null);
+  const [userGoal, setUserGoal] = useState("");
+  const [targetColumn, setTargetColumn] = useState("");
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const fetchUserDatasets = async () => {
-    if (!user) {
-      console.log("User not loaded yet");
-      return;
-    }
+    if (!user) return;
 
-    console.log("Fetching user data for Clerk ID:", user.id);
     try {
       const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
         credentials: "include",
       });
-      console.log("Response status:", response.status);
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to fetch user data: ${response.status} - ${errorText}`);
-      }
-
+      if (!response.ok) throw new Error(`Failed to fetch user data: ${response.status}`);
       const userData = await response.json();
-      console.log("User data received:", userData);
-      if (!userData.user_id) {  // Match backend key
-        throw new Error("MongoDB user_id not found in user data");
-      }
       setMongoUserId(userData.user_id);
 
-      // Use dataset_ids as an array of strings
       const datasetIds = userData.dataset_ids || [];
-      console.log("Extracted dataset IDs:", datasetIds);
-
       if (datasetIds.length === 0) {
-        console.log("No dataset IDs found to fetch.");
         setDatasets([]);
         return;
       }
 
       const datasetsPromises = datasetIds.map(async (id: string) => {
         const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`Failed to fetch dataset ${id}: ${response.status} - ${errorText}`);
-          return null;
-        }
+        if (!response.ok) return null;
         return response.json();
       });
 
       const datasetsData = (await Promise.all(datasetsPromises)).filter((data) => data !== null);
-      console.log("Fetched datasets:", datasetsData);
       setDatasets(datasetsData);
     } catch (error) {
       console.error("Error fetching datasets:", error);
@@ -92,31 +95,22 @@ export default function DataManagement() {
   useEffect(() => {
     if (user) {
       fetchUserDatasets();
+      const interval = setInterval(fetchUserDatasets, 30000); // Poll every 30 seconds
+      return () => clearInterval(interval);
     }
   }, [user]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
-      if (!file.name.toLowerCase().endsWith(".csv")) {
-        toast({
-          title: "Invalid file type",
-          description: "Please upload a CSV file",
-          variant: "destructive",
-        });
-        return;
-      }
+    if (file && file.name.toLowerCase().endsWith(".csv")) {
       setSelectedFile(file);
-      console.log("Selected file:", file.name);
+    } else {
+      toast({ title: "Invalid file type", description: "Please upload a CSV file", variant: "destructive" });
     }
   };
 
   const handleUpload = async () => {
-    console.log("handleUpload called");
-    if (!selectedFile || !mongoUserId || !projectName) {
-      console.log("Missing:", { selectedFile, mongoUserId, projectName });
-      return;
-    }
+    if (!selectedFile || !mongoUserId || !projectName) return;
 
     const formData = new FormData();
     formData.append("file", selectedFile);
@@ -124,30 +118,16 @@ export default function DataManagement() {
     formData.append("project_name", projectName);
 
     try {
-      console.log("Uploading:", { user_id: mongoUserId, project_name: projectName, file: selectedFile.name });
-
       const response = await fetch("http://127.0.0.1:5000/dataset/add_dataset", {
         method: "POST",
         body: formData,
         credentials: "include",
       });
-
-      console.log("Response status:", response.status);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Upload failed");
-      }
-
-      const data = await response.json();
-      console.log("Upload response:", data);
-      await fetchUserDatasets(); // Re-fetch to update table
+      if (!response.ok) throw new Error("Upload failed");
+      await fetchUserDatasets();
       setSelectedFile(null);
       setProjectName("");
-
-      toast({
-        title: "Success",
-        description: "Dataset uploaded successfully",
-      });
+      toast({ title: "Success", description: "Dataset uploaded successfully" });
     } catch (error) {
       console.error("Error uploading file:", error);
       toast({
@@ -155,6 +135,90 @@ export default function DataManagement() {
         description: error instanceof Error ? error.message : "Failed to upload dataset",
         variant: "destructive",
       });
+    }
+  };
+
+  const fetchRecommendations = async (datasetId: string) => {
+    if (!userGoal || !targetColumn) {
+      toast({
+        title: "Missing Input",
+        description: "Please provide your goal and target column",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch("http://127.0.0.1:5000/gemini/recommend_preprocessing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          dataset_id: datasetId,
+          user_goal: userGoal,
+          target_column: targetColumn,
+        }),
+      });
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const recommendations: PreprocessingRecommendations = await response.json();
+      setRecommendations(recommendations);
+      setEditedRecommendations({ ...recommendations });
+      setIsDialogOpen(true);
+    } catch (error) {
+      console.error("Error fetching recommendations:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to fetch recommendations",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const applyRecommendations = async () => {
+    if (!selectedDatasetId || !editedRecommendations) return;
+
+    try {
+      const updateData = {
+        dataset_id: selectedDatasetId,
+        dataset_fields: {
+          fill_empty_rows_using: editedRecommendations.fill_empty_rows_using,
+          remove_duplicate: editedRecommendations.remove_duplicate,
+          start_preprocessing: true,
+          Is_preprocessing_form_filled: true,
+        },
+      };
+
+      const response = await fetch(`http://127.0.0.1:5000/dataset/update_dataset`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(updateData),
+      });
+      if (!response.ok) throw new Error("Failed to apply recommendations");
+
+      await fetchUserDatasets();
+      setIsDialogOpen(false);
+      setRecommendations(null);
+      setEditedRecommendations(null);
+      setUserGoal("");
+      setTargetColumn("");
+      toast({
+        title: "Success",
+        description: "Preprocessing started successfully (only null handling and duplicate removal applied)",
+      });
+    } catch (error) {
+      console.error("Error applying recommendations:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to start preprocessing",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRecommendationChange = (field: keyof PreprocessingRecommendations, value: any) => {
+    if (editedRecommendations) {
+      setEditedRecommendations({ ...editedRecommendations, [field]: value });
     }
   };
 
@@ -178,8 +242,7 @@ export default function DataManagement() {
             <div className="flex items-center space-x-4">
               <Input type="file" onChange={handleFileChange} accept=".csv" />
               <Button onClick={handleUpload} disabled={!selectedFile || !projectName || !mongoUserId}>
-                <Upload className="mr-2 h-4 w-4" />
-                Upload
+                <Upload className="mr-2 h-4 w-4" /> Upload
               </Button>
             </div>
           </div>
@@ -202,7 +265,6 @@ export default function DataManagement() {
                   <TableHead>Name</TableHead>
                   <TableHead>Description</TableHead>
                   <TableHead>Preprocessing Status</TableHead>
-                  <TableHead>Test Split</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -218,15 +280,162 @@ export default function DataManagement() {
                         ? "⏳ In Progress"
                         : "⚪ Not Started"}
                     </TableCell>
-                    <TableCell>{dataset.test_dataset_percentage}%</TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
                         <Button variant="ghost" size="icon">
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" disabled={dataset.start_preprocessing}>
-                          <Settings className="h-4 w-4" />
-                        </Button>
+                        <Dialog
+                          open={isDialogOpen && selectedDatasetId === dataset._id}
+                          onOpenChange={(open) => {
+                            if (!open) {
+                              setRecommendations(null);
+                              setEditedRecommendations(null);
+                              setUserGoal("");
+                              setTargetColumn("");
+                              setSelectedDatasetId(null);
+                            }
+                            setIsDialogOpen(open);
+                          }}
+                        >
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={dataset.is_preprocessing_done || dataset.start_preprocessing}
+                              onClick={() => setSelectedDatasetId(dataset._id)}
+                            >
+                              <Brain className="h-4 w-4" />
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="sm:max-w-[600px]">
+                            <DialogHeader>
+                              <DialogTitle>Preprocessing Recommendations</DialogTitle>
+                              <DialogDescription>
+                                Provide your goal and target column to get recommendations. Note: Only null handling and duplicate removal can be applied currently.
+                              </DialogDescription>
+                            </DialogHeader>
+                            <div className="grid gap-4 py-4">
+                              <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="userGoal" className="text-right">Goal</Label>
+                                <Input
+                                  id="userGoal"
+                                  value={userGoal}
+                                  onChange={(e) => setUserGoal(e.target.value)}
+                                  placeholder="e.g., predict sales revenue"
+                                  className="col-span-3"
+                                />
+                              </div>
+                              <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="targetColumn" className="text-right">Target Column</Label>
+                                <Input
+                                  id="targetColumn"
+                                  value={targetColumn}
+                                  onChange={(e) => setTargetColumn(e.target.value)}
+                                  placeholder="e.g., sales"
+                                  className="col-span-3"
+                                />
+                              </div>
+                              {editedRecommendations && (
+                                <div className="grid gap-4">
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Fill Empty Rows</Label>
+                                    <Select
+                                      value={editedRecommendations.fill_empty_rows_using}
+                                      onValueChange={(value) =>
+                                        handleRecommendationChange(
+                                          "fill_empty_rows_using",
+                                          value as "mean" | "median" | "mode" | "none"
+                                        )
+                                      }
+                                    >
+                                      <SelectTrigger className="col-span-3">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="mean">Mean</SelectItem>
+                                        <SelectItem value="median">Median</SelectItem>
+                                        <SelectItem value="mode">Mode</SelectItem>
+                                        <SelectItem value="none">None</SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Remove Duplicates</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.remove_duplicate}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("remove_duplicate", checked)
+                                      }
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Standardization</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.standardization_necessary}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Normalization</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.normalization_necessary}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Test Split (%)</Label>
+                                    <Input
+                                      type="number"
+                                      value={editedRecommendations.test_dataset_percentage}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Increase Dataset Size</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.increase_the_size_of_dataset}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Fill String Columns</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.fill_string_type_columns}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Dimensionality Reduction</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.dimensionality_reduction}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                  <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right">Remove Correlated Columns</Label>
+                                    <Checkbox
+                                      checked={editedRecommendations.remove_highly_correlated_columns}
+                                      className="col-span-3"
+                                    />
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <DialogFooter>
+                              <Button
+                                onClick={() => fetchRecommendations(dataset._id)}
+                                disabled={!userGoal || !targetColumn}
+                              >
+                                Get Recommendations
+                              </Button>
+                              {editedRecommendations && (
+                                <Button onClick={applyRecommendations}>Start Preprocessing</Button>
+                              )}
+                            </DialogFooter>
+                          </DialogContent>
+                        </Dialog>
                       </div>
                     </TableCell>
                   </TableRow>
