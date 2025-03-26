@@ -4,16 +4,23 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useToast } from "@/components/ui/use-toast";
 import "chart.js/auto";
 import { Line, Bar } from "react-chartjs-2";
-import { useUser } from "@clerk/nextjs"; // Add this to get user info
+import { useUser } from "@clerk/nextjs";
+import { classificationModels } from "@/components/models/ClassificationModels";
+import { clusteringModels } from "@/components/models/ClusteringModels";
+import { naiveBayesModels } from "@/components/models/NaiveBayesModels";
+import { regressionModels } from "@/components/models/RegressionModels";
+import { neuralModels } from "@/components/models/NeuralModels";
+import { renderHyperparameters, renderNetworkArchitecture } from "@/components/models/ModelsUtils";
 
 interface Dataset {
   _id: string;
   filename: string;
-  datasetId: string; // Assuming this matches DatasetInfo.datasetId
+  datasetId: string;
 }
 
 interface DatasetInfo {
@@ -35,49 +42,54 @@ interface ChartConfig {
   data: any;
 }
 
+interface LayerConfig {
+  units: number;
+  activation: string;
+}
+
+interface ModelConfig {
+  modelType: string;
+  hyperparameters: Record<string, any>;
+}
+
 export default function ModelSelection() {
-  const { user } = useUser(); // Get Clerk user
+  const { user } = useUser();
   const { toast } = useToast();
-  const [modelType, setModelType] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false); // Changed from isUploading
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [datasetInfo, setDatasetInfo] = useState<DatasetInfo | null>(null);
-  const [selectedModel, setSelectedModel] = useState("");
   const [targetColumn, setTargetColumn] = useState<string>("");
-  const [hyperparameters, setHyperparameters] = useState({
-    learningRate: 0.01,
-    regularization: 0.1,
-  });
+  const [selectedModels, setSelectedModels] = useState<ModelConfig[]>([]);
   const [savedCharts, setSavedCharts] = useState<ChartConfig[]>([]);
+
+  const modelCategories = {
+    classification: classificationModels,
+    clustering: clusteringModels,
+    naive_bayes: naiveBayesModels,
+    regression: regressionModels,
+    neural: neuralModels,
+  };
 
   // Fetch datasets on mount
   useEffect(() => {
     const fetchDatasets = async () => {
-      if (!user) {
-        console.log("User not loaded yet");
-        return;
-      }
+      if (!user) return;
 
       try {
         const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
           credentials: "include",
         });
-        if (!response.ok) {
-          throw new Error(await response.text());
-        }
+        if (!response.ok) throw new Error(await response.text());
 
         const userData = await response.json();
         const datasetIds = userData.dataset_ids || [];
 
         const datasetsPromises = datasetIds.map(async (id: string) => {
           const res = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
-          if (!res.ok) {
-            console.error(`Failed to fetch dataset ${id}`);
-            return null;
-          }
+          if (!res.ok) return null;
           const data = await res.json();
-          return { _id: data._id, filename: data.filename, datasetId: data._id }; // Adjust based on your backend response
+          return { _id: data._id, filename: data.filename, datasetId: data._id };
         });
 
         const datasetsData = (await Promise.all(datasetsPromises)).filter((d) => d !== null);
@@ -92,18 +104,12 @@ export default function ModelSelection() {
       }
     };
 
-    if (user) {
-      fetchDatasets();
-    }
+    if (user) fetchDatasets();
   }, [user, toast]);
 
   const handleAnalyzeDataset = async () => {
     if (!selectedDatasetId) {
-      toast({
-        title: "Error",
-        description: "Please select a dataset first",
-        variant: "destructive",
-      });
+      toast({ title: "Error", description: "Please select a dataset first", variant: "destructive" });
       return;
     }
 
@@ -115,21 +121,13 @@ export default function ModelSelection() {
         body: JSON.stringify({ datasetId: selectedDatasetId }),
       });
 
-      if (!response.ok) {
-        throw new Error(await response.text());
-      }
+      if (!response.ok) throw new Error(await response.text());
 
       const data = await response.json();
       setDatasetInfo(data);
+      if (data.targetColumn) setTargetColumn(data.targetColumn);
 
-      if (data.targetColumn) {
-        setTargetColumn(data.targetColumn);
-      }
-
-      toast({
-        title: "Success",
-        description: "Dataset analyzed successfully",
-      });
+      toast({ title: "Success", description: "Dataset analyzed successfully" });
     } catch (error) {
       console.error("Analyze error:", error);
       toast({
@@ -142,81 +140,77 @@ export default function ModelSelection() {
     }
   };
 
-  const handleTrainModel = async () => {
-    if (!selectedModel || !datasetInfo || !targetColumn) {
+  const handleModelToggle = (model: string, category: string) => {
+    setSelectedModels((prev) => {
+      if (prev.some((m) => m.modelType === model)) {
+        return prev.filter((m) => m.modelType !== model);
+      } else {
+        return [...prev, { modelType: model, hyperparameters: { ...modelCategories[category as keyof typeof modelCategories][model] } }];
+      }
+    });
+  };
+
+  const handleHyperparameterChange = (modelType: string, param: string, value: any) => {
+    setSelectedModels((prev) =>
+      prev.map((m) =>
+        m.modelType === modelType ? { ...m, hyperparameters: { ...m.hyperparameters, [param]: value } } : m
+      )
+    );
+  };
+
+  const handleAddLayer = (modelType: string) => {
+    setSelectedModels((prev) =>
+      prev.map((m) =>
+        m.modelType === modelType && modelCategories.neural[m.modelType]
+          ? { ...m, hyperparameters: { ...m.hyperparameters, layers: [...m.hyperparameters.layers, { units: 32, activation: "relu" }] } }
+          : m
+      )
+    );
+  };
+
+  const handleLayerChange = (modelType: string, index: number, field: keyof LayerConfig, value: number | string) => {
+    setSelectedModels((prev) =>
+      prev.map((m) => {
+        if (m.modelType !== modelType || !modelCategories.neural[m.modelType]) return m;
+        const newLayers = [...m.hyperparameters.layers];
+        newLayers[index] = { ...newLayers[index], [field]: value };
+        return { ...m, hyperparameters: { ...m.hyperparameters, layers: newLayers } };
+      })
+    );
+  };
+
+  const handleScheduleTraining = async () => {
+    if (!selectedModels.length || !datasetInfo || !targetColumn) {
       toast({
         title: "Error",
-        description: "Please select a model, analyze a dataset, and specify target column",
+        description: "Please select at least one model, analyze a dataset, and specify a target column",
         variant: "destructive",
       });
       return;
     }
 
     try {
-      const trainResponse = await fetch("http://127.0.0.1:5000/model/train", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          modelType: selectedModel,
-          hyperparameters,
-          datasetId: datasetInfo.datasetId,
-          targetColumn,
-        }),
-      });
-
-      if (!trainResponse.ok) {
-        throw new Error(await trainResponse.text());
-      }
-
-      const trainData = await trainResponse.json();
-      toast({
-        title: "Success",
-        description: "Model training completed successfully",
-      });
-
-      const vizResponse = await fetch("http://127.0.0.1:5000/model/visualize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jobId: trainData.jobId }),
-      });
-
-      if (!vizResponse.ok) {
-        throw new Error(await vizResponse.text());
-      }
-
-      const vizData = await vizResponse.json();
-
-      const lossCurve = {
-        labels: vizData.epochs || Array.from({ length: 10 }, (_, i) => i + 1),
-        datasets: [{
-          label: "Training Loss",
-          data: vizData.loss || Array(10).fill(0).map(() => Math.random()),
-          borderColor: "rgba(75, 192, 192, 1)",
-          fill: false,
-        }],
+      const payload = {
+        datasetId: datasetInfo.datasetId,
+        targetColumn,
+        models: selectedModels,
       };
 
-      const metricsBar = {
-        labels: ["Accuracy", "Precision", "Recall"],
-        datasets: [{
-          label: "Model Metrics",
-          data: [vizData.accuracy || 0.8, vizData.precision || 0.75, vizData.recall || 0.7],
-          backgroundColor: "rgba(75, 192, 192, 0.2)",
-          borderColor: "rgba(75, 192, 192, 1)",
-          borderWidth: 1,
-        }],
-      };
+      const response = await fetch("http://127.0.0.1:5000/model/schedule_training", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      setSavedCharts((prev) => [
-        ...prev,
-        { modelType: selectedModel, chartType: "line", title: `${selectedModel} Loss Curve`, data: lossCurve },
-        { modelType: selectedModel, chartType: "bar", title: `${selectedModel} Performance Metrics`, data: metricsBar },
-      ]);
+      if (!response.ok) throw new Error(await response.text());
+
+      toast({ title: "Success", description: "Models scheduled for training successfully" });
+      setSelectedModels([]);
     } catch (error) {
-      console.error("Training/visualization error:", error);
+      console.error("Scheduling error:", error);
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to train model or generate visualization",
+        description: error instanceof Error ? error.message : "Failed to schedule training",
         variant: "destructive",
       });
     }
@@ -240,12 +234,12 @@ export default function ModelSelection() {
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>Select Dataset</CardTitle>
-          <CardDescription>Choose an existing dataset to train your model</CardDescription>
+          <CardDescription>Choose a dataset for training</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex gap-4">
             <Select onValueChange={setSelectedDatasetId} value={selectedDatasetId}>
-              <SelectTrigger>
+              <SelectTrigger className="w-[300px]">
                 <SelectValue placeholder="Select a dataset" />
               </SelectTrigger>
               <SelectContent>
@@ -260,42 +254,24 @@ export default function ModelSelection() {
                 )}
               </SelectContent>
             </Select>
-            <Button
-              onClick={handleAnalyzeDataset}
-              disabled={isAnalyzing || !selectedDatasetId}
-            >
+            <Button onClick={handleAnalyzeDataset} disabled={isAnalyzing || !selectedDatasetId}>
               {isAnalyzing ? "Analyzing..." : "Analyze Dataset"}
             </Button>
           </div>
-
           {datasetInfo && (
             <div className="mt-4 p-4 bg-muted rounded-lg space-y-2">
-              <h3 className="font-semibold mb-2">Dataset Information</h3>
-              <p>Rows: {datasetInfo.shape[0]}</p>
-              <p>Columns: {datasetInfo.shape[1]}</p>
-
-              <div>
-                <h4 className="font-medium">Column Types:</h4>
-                <ul className="list-disc list-inside">
-                  {Object.entries(datasetInfo.columnTypes).map(([col, type]) => (
-                    <li key={col}>{col}: {type}</li>
+              <h3 className="font-semibold">Dataset Info</h3>
+              <p>Rows: {datasetInfo.shape[0]}, Columns: {datasetInfo.shape[1]}</p>
+              <Select value={targetColumn} onValueChange={setTargetColumn}>
+                <SelectTrigger className="w-[200px]">
+                  <SelectValue placeholder="Target column" />
+                </SelectTrigger>
+                <SelectContent>
+                  {datasetInfo.columns.map((col) => (
+                    <SelectItem key={col} value={col}>{col}</SelectItem>
                   ))}
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="font-medium">Target Column:</h4>
-                <Select value={targetColumn} onValueChange={setTargetColumn}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select target column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {datasetInfo.columns.map((col) => (
-                      <SelectItem key={col} value={col}>{col}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
           )}
         </CardContent>
@@ -305,114 +281,69 @@ export default function ModelSelection() {
         <>
           <Card className="mb-8">
             <CardHeader>
-              <CardTitle>Select Model Type</CardTitle>
-              <CardDescription>Choose the type of machine learning model</CardDescription>
+              <CardTitle>Select Models</CardTitle>
+              <CardDescription>Choose models and configure their hyperparameters</CardDescription>
             </CardHeader>
             <CardContent>
-              <Select onValueChange={setModelType} value={modelType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select model type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="supervised">Supervised Learning</SelectItem>
-                  <SelectItem value="unsupervised">Unsupervised Learning</SelectItem>
-                  <SelectItem value="neural">Neural Networks</SelectItem>
-                </SelectContent>
-              </Select>
+              <Accordion type="single" collapsible>
+                {Object.entries(modelCategories).map(([category, models]) => (
+                  <AccordionItem key={category} value={category}>
+                    <AccordionTrigger>{category.replace("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}</AccordionTrigger>
+                    <AccordionContent>
+                      <div className="grid gap-2">
+                        {Object.keys(models).map((model) => (
+                          <div key={model} className="flex items-center space-x-2">
+                            <Checkbox
+                              id={model}
+                              checked={selectedModels.some((m) => m.modelType === model)}
+                              onCheckedChange={() => handleModelToggle(model, category)}
+                            />
+                            <label htmlFor={model} className="text-sm">
+                              {model.replace("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
             </CardContent>
           </Card>
 
-          {modelType && (
+          {selectedModels.length > 0 && (
             <Card className="mb-8">
               <CardHeader>
-                <CardTitle>
-                  {modelType === "supervised"
-                    ? "Supervised Learning Models"
-                    : modelType === "unsupervised"
-                    ? "Unsupervised Learning Models"
-                    : "Neural Network Architecture"}
-                </CardTitle>
+                <CardTitle>Configure Selected Models</CardTitle>
+                <CardDescription>Adjust hyperparameters for each model</CardDescription>
               </CardHeader>
               <CardContent>
-                <Select onValueChange={setSelectedModel}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select specific model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {modelType === "supervised" && (
-                      <>
-                        <SelectItem value="linear_regression">Linear Regression</SelectItem>
-                        <SelectItem value="logistic_regression">Logistic Regression</SelectItem>
-                        <SelectItem value="decision_tree">Decision Tree</SelectItem>
-                        <SelectItem value="random_forest">Random Forest</SelectItem>
-                      </>
-                    )}
-                    {modelType === "unsupervised" && (
-                      <>
-                        <SelectItem value="kmeans">K-Means Clustering</SelectItem>
-                        <SelectItem value="hierarchical">Hierarchical Clustering</SelectItem>
-                        <SelectItem value="pca">Principal Component Analysis</SelectItem>
-                      </>
-                    )}
-                    {modelType === "neural" && (
-                      <>
-                        <SelectItem value="mlp">Multi-Layer Perceptron</SelectItem>
-                        <SelectItem value="cnn">Convolutional Neural Network</SelectItem>
-                        <SelectItem value="rnn">Recurrent Neural Network</SelectItem>
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
+                <div className="grid gap-6">
+                  {selectedModels.map((model) => (
+                    <div key={model.modelType}>
+                      {renderHyperparameters(
+                        model,
+                        handleHyperparameterChange,
+                        handleAddLayer,
+                        handleLayerChange,
+                        model.modelType in neuralModels
+                      )}
+                      {renderNetworkArchitecture(model, datasetInfo)}
+                    </div>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
 
           <Card className="mb-8">
             <CardHeader>
-              <CardTitle>Hyperparameter Tuning</CardTitle>
-              <CardDescription>Adjust model hyperparameters</CardDescription>
+              <CardTitle>Schedule Training</CardTitle>
+              <CardDescription>Add selected models to the training queue</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-4">
-                <div>
-                  <label className="block mb-2">Learning Rate</label>
-                  <Slider
-                    defaultValue={[hyperparameters.learningRate]}
-                    max={1}
-                    step={0.01}
-                    onValueChange={([value]) => setHyperparameters((prev) => ({ ...prev, learningRate: value }))}
-                  />
-                  <span className="text-sm text-muted-foreground mt-1">
-                    Current: {hyperparameters.learningRate}
-                  </span>
-                </div>
-                <div>
-                  <label className="block mb-2">Regularization Strength</label>
-                  <Slider
-                    defaultValue={[hyperparameters.regularization]}
-                    max={1}
-                    step={0.1}
-                    onValueChange={([value]) => setHyperparameters((prev) => ({ ...prev, regularization: value }))}
-                  />
-                  <span className="text-sm text-muted-foreground mt-1">
-                    Current: {hyperparameters.regularization}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Train Model</CardTitle>
-              <CardDescription>Start the model training process and view results</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                onClick={handleTrainModel}
-                disabled={!selectedModel || !targetColumn}
-              >
-                Train and Visualize Model
+              <Button onClick={handleScheduleTraining} disabled={!selectedModels.length || !targetColumn}>
+                Schedule Training
               </Button>
             </CardContent>
           </Card>
@@ -421,16 +352,13 @@ export default function ModelSelection() {
             <Card className="mb-8">
               <CardHeader>
                 <CardTitle>Model Visualizations</CardTitle>
-                <CardDescription>Performance metrics and training progress</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid gap-6">
                   {savedCharts.map((chart, index) => (
                     <div key={index} className="border p-4 rounded-lg">
                       <h3 className="text-lg font-medium mb-2">{chart.title}</h3>
-                      <div style={{ height: "400px" }}>
-                        {renderChart(chart)}
-                      </div>
+                      <div style={{ height: "400px" }}>{renderChart(chart)}</div>
                     </div>
                   ))}
                 </div>

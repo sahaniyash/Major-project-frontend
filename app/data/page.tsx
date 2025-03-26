@@ -183,6 +183,13 @@ export default function DataManagement() {
         dataset_fields: {
           fill_empty_rows_using: editedRecommendations.fill_empty_rows_using,
           remove_duplicate: editedRecommendations.remove_duplicate,
+          standardization_necessary: editedRecommendations.standardization_necessary,
+          normalization_necessary: editedRecommendations.normalization_necessary,
+          test_dataset_percentage: editedRecommendations.test_dataset_percentage,
+          increase_the_size_of_dataset: editedRecommendations.increase_the_size_of_dataset,
+          fill_string_type_columns: editedRecommendations.fill_string_type_columns,
+          dimensionality_reduction: editedRecommendations.dimensionality_reduction,
+          remove_highly_correlated_columns: editedRecommendations.remove_highly_correlated_columns,
           start_preprocessing: true,
           Is_preprocessing_form_filled: true,
         },
@@ -374,6 +381,9 @@ export default function DataManagement() {
                                     <Label className="text-right">Standardization</Label>
                                     <Checkbox
                                       checked={editedRecommendations.standardization_necessary}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("standardization_necessary", checked)
+                                      }
                                       className="col-span-3"
                                     />
                                   </div>
@@ -381,6 +391,9 @@ export default function DataManagement() {
                                     <Label className="text-right">Normalization</Label>
                                     <Checkbox
                                       checked={editedRecommendations.normalization_necessary}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("normalization_necessary", checked)
+                                      }
                                       className="col-span-3"
                                     />
                                   </div>
@@ -389,13 +402,21 @@ export default function DataManagement() {
                                     <Input
                                       type="number"
                                       value={editedRecommendations.test_dataset_percentage}
+                                      onChange={(e) =>
+                                        handleRecommendationChange("test_dataset_percentage", Number(e.target.value))
+                                      }
                                       className="col-span-3"
+                                      min={0}
+                                      max={100}
                                     />
                                   </div>
                                   <div className="grid grid-cols-4 items-center gap-4">
                                     <Label className="text-right">Increase Dataset Size</Label>
                                     <Checkbox
                                       checked={editedRecommendations.increase_the_size_of_dataset}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("increase_the_size_of_dataset", checked)
+                                      }
                                       className="col-span-3"
                                     />
                                   </div>
@@ -403,6 +424,9 @@ export default function DataManagement() {
                                     <Label className="text-right">Fill String Columns</Label>
                                     <Checkbox
                                       checked={editedRecommendations.fill_string_type_columns}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("fill_string_type_columns", checked)
+                                      }
                                       className="col-span-3"
                                     />
                                   </div>
@@ -410,6 +434,9 @@ export default function DataManagement() {
                                     <Label className="text-right">Dimensionality Reduction</Label>
                                     <Checkbox
                                       checked={editedRecommendations.dimensionality_reduction}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("dimensionality_reduction", checked)
+                                      }
                                       className="col-span-3"
                                     />
                                   </div>
@@ -417,6 +444,9 @@ export default function DataManagement() {
                                     <Label className="text-right">Remove Correlated Columns</Label>
                                     <Checkbox
                                       checked={editedRecommendations.remove_highly_correlated_columns}
+                                      onCheckedChange={(checked) =>
+                                        handleRecommendationChange("remove_highly_correlated_columns", checked)
+                                      }
                                       className="col-span-3"
                                     />
                                   </div>

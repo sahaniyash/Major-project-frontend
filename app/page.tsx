@@ -200,7 +200,14 @@ export default function Dashboard() {
                 <CardTitle>Performance Over Time</CardTitle>
               </CardHeader>
               <CardContent className="h-[300px]">
-                <AreaChart data={[]} />
+                <AreaChart data={[
+                  { name: "Preprocessed", value: stats.preprocessedDatasets },
+                  { name: "Pending", value: stats.pendingPreprocessing },
+                  {
+                    name: "Not Started",
+                    value: stats.totalDatasets - stats.preprocessedDatasets - stats.pendingPreprocessing,
+                  },
+                ]} />
               </CardContent>
             </Card>
             <Card>
