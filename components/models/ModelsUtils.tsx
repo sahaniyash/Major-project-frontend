@@ -8,6 +8,10 @@ import { neuralModels } from "./NeuralModels";
 interface LayerConfig {
   units: number;
   activation: string;
+  filters?: number;
+  kernel_size?: number;
+  pool_size?: number;
+  return_sequences?: boolean;
 }
 
 interface ModelConfig {
@@ -31,7 +35,12 @@ export const renderHyperparameters = (
   model: ModelConfig,
   handleHyperparameterChange: (modelType: string, param: string, value: any) => void,
   handleAddLayer: (modelType: string) => void,
-  handleLayerChange: (modelType: string, index: number, field: keyof LayerConfig, value: number | string) => void,
+  handleLayerChange: (
+    modelType: string,
+    index: number,
+    field: keyof LayerConfig,
+    value: number | string | boolean
+  ) => void,
   isNeural: boolean
 ) => {
   const { modelType, hyperparameters } = model;
@@ -46,37 +55,281 @@ export const renderHyperparameters = (
             return (
               <div key={param}>
                 <Button onClick={() => handleAddLayer(modelType)} className="mb-2">Add Layer</Button>
-                {value.length > 0 && (
-                  <div>
-                    {value.map((layer: LayerConfig, index: number) => (
-                      <div key={index} className="mb-2 p-2 border rounded">
-                        <p>Layer {index + 1}</p>
-                        <Input
-                          type="number"
-                          value={layer.units}
-                          onChange={(e) => handleLayerChange(modelType, index, "units", Number(e.target.value))}
-                          min={1}
-                          placeholder="Units"
-                          className="mb-2"
-                        />
-                        <Select
-                          value={layer.activation}
-                          onValueChange={(val) => handleLayerChange(modelType, index, "activation", val)}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Activation" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="relu">ReLU</SelectItem>
-                            <SelectItem value="sigmoid">Sigmoid</SelectItem>
-                            <SelectItem value="tanh">Tanh</SelectItem>
-                            <SelectItem value="linear">Linear</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              </div>
+            )
+          }
+
+          // Neural network model-level hyperparameters
+          if (param === "learning_rate" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Learning Rate</label>
+                <Slider
+                  defaultValue={[value]}
+                  max={1}
+                  step={0.001}
+                  onValueChange={([val]) => handleHyperparameterChange(modelType, param, val)}
+                />
+                <span className="text-sm text-muted-foreground mt-1">Current: {value}</span>
+              </div>
+            );
+          }
+          if (param === "regularization" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Regularization</label>
+                <Slider
+                  defaultValue={[value]}
+                  max={1}
+                  step={0.01}
+                  onValueChange={([val]) => handleHyperparameterChange(modelType, param, val)}
+                />
+                <span className="text-sm text-muted-foreground mt-1">Current: {value}</span>
+              </div>
+            );
+          }
+          if (param === "optimizer" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Optimizer</label>
+                <Select value={value} onValueChange={(val) => handleHyperparameterChange(modelType, param, val)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select optimizer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="adam">Adam</SelectItem>
+                    <SelectItem value="sgd">SGD</SelectItem>
+                    <SelectItem value="rmsprop">RMSprop</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+          if (param === "batch_size" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Batch Size</label>
+                <Input
+                  type="number"
+                  value={value}
+                  onChange={(e) => handleHyperparameterChange(modelType, param, Number(e.target.value))}
+                  min={1}
+                  placeholder="Batch Size"
+                />
+              </div>
+            );
+          }
+          if (param === "epochs" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Epochs</label>
+                <Input
+                  type="number"
+                  value={value}
+                  onChange={(e) => handleHyperparameterChange(modelType, param, Number(e.target.value))}
+                  min={1}
+                  placeholder="Epochs"
+                />
+              </div>
+            );
+          }
+          if (param === "activation" && modelType === "multilayer_perceptron") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Default Activation</label>
+                <Select value={value} onValueChange={(val) => handleHyperparameterChange(modelType, param, val)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Activation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="relu">ReLU</SelectItem>
+                    <SelectItem value="sigmoid">Sigmoid</SelectItem>
+                    <SelectItem value="tanh">Tanh</SelectItem>
+                    <SelectItem value="linear">Linear</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+          if (param === "loss" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Loss Function</label>
+                <Select value={value} onValueChange={(val) => handleHyperparameterChange(modelType, param, val)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select loss" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="mse">Mean Squared Error</SelectItem>
+                    <SelectItem value="mae">Mean Absolute Error</SelectItem>
+                    <SelectItem value="categorical_crossentropy">Categorical Crossentropy</SelectItem>
+                    <SelectItem value="binary_crossentropy">Binary Crossentropy</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+          if (param === "dropout_rate" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Dropout Rate</label>
+                <Slider
+                  defaultValue={[value]}
+                  max={1}
+                  step={0.01}
+                  onValueChange={([val]) => handleHyperparameterChange(modelType, param, val)}
+                />
+                <span className="text-sm text-muted-foreground mt-1">Current: {value}</span>
+              </div>
+            );
+          }
+          if (param === "momentum" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Momentum</label>
+                <Slider
+                  defaultValue={[value]}
+                  max={1}
+                  step={0.01}
+                  onValueChange={([val]) => handleHyperparameterChange(modelType, param, val)}
+                />
+                <span className="text-sm text-muted-foreground mt-1">Current: {value}</span>
+              </div>
+            );
+          }
+          if (param === "filters" && modelType === "convolutional_neural_network") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Default Filters</label>
+                <Input
+                  type="number"
+                  value={value}
+                  onChange={(e) => handleHyperparameterChange(modelType, param, Number(e.target.value))}
+                  min={1}
+                  placeholder="Filters"
+                />
+              </div>
+            );
+          }
+          if (param === "kernel_size" && modelType === "convolutional_neural_network") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Default Kernel Size</label>
+                <Input
+                  type="number"
+                  value={value}
+                  onChange={(e) => handleHyperparameterChange(modelType, param, Number(e.target.value))}
+                  min={1}
+                  placeholder="Kernel Size"
+                />
+              </div>
+            );
+          }
+          if (param === "pool_size" && modelType === "convolutional_neural_network") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Default Pool Size</label>
+                <Input
+                  type="number"
+                  value={value}
+                  onChange={(e) => handleHyperparameterChange(modelType, param, Number(e.target.value))}
+                  min={1}
+                  placeholder="Pool Size"
+                />
+              </div>
+            );
+          }
+          if (param === "padding" && modelType === "convolutional_neural_network") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Padding</label>
+                <Select value={value} onValueChange={(val) => handleHyperparameterChange(modelType, param, val)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select padding" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="valid">Valid</SelectItem>
+                    <SelectItem value="same">Same</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+          if (param === "strides" && modelType === "convolutional_neural_network") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Strides</label>
+                <Input
+                  type="number"
+                  value={value}
+                  onChange={(e) => handleHyperparameterChange(modelType, param, Number(e.target.value))}
+                  min={1}
+                  placeholder="Strides"
+                />
+              </div>
+            );
+          }
+          if (param === "rnn_type" && modelType === "recurrent_neural_network") {
+            return (
+              <div key={param}>
+                <label className="block mb-2">RNN Type</label>
+                <Select value={value} onValueChange={(val) => handleHyperparameterChange(modelType, param, val)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select RNN type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lstm">LSTM</SelectItem>
+                    <SelectItem value="gru">GRU</SelectItem>
+                    <SelectItem value="simple">Simple RNN</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          }
+          if (param === "return_sequences" && modelType === "recurrent_neural_network") {
+            return (
+              <div key={param} className="flex items-center space-x-2">
+                <label className="block">Return Sequences (Default)</label>
+                <Switch
+                  checked={value}
+                  onCheckedChange={(checked) => handleHyperparameterChange(modelType, param, checked)}
+                />
+              </div>
+            );
+          }
+          if (param === "bidirectional" && modelType === "recurrent_neural_network") {
+            return (
+              <div key={param} className="flex items-center space-x-2">
+                <label className="block">Bidirectional</label>
+                <Switch
+                  checked={value}
+                  onCheckedChange={(checked) => handleHyperparameterChange(modelType, param, checked)}
+                />
+              </div>
+            );
+          }
+          if (param === "early_stopping" && isNeural) {
+            return (
+              <div key={param} className="flex items-center space-x-2">
+                <label className="block">Early Stopping</label>
+                <Switch
+                  checked={value}
+                  onCheckedChange={(checked) => handleHyperparameterChange(modelType, param, checked)}
+                />
+              </div>
+            );
+          }
+          if (param === "validation_split" && isNeural) {
+            return (
+              <div key={param}>
+                <label className="block mb-2">Validation Split</label>
+                <Slider
+                  defaultValue={[value]}
+                  max={0.5}
+                  step={0.01}
+                  onValueChange={([val]) => handleHyperparameterChange(modelType, param, val)}
+                />
+                <span className="text-sm text-muted-foreground mt-1">Current: {value}</span>
               </div>
             );
           }
@@ -1275,33 +1528,141 @@ export const renderHyperparameters = (
   );
 };
 
-export const renderNetworkArchitecture = (model: ModelConfig, datasetInfo: DatasetInfo | null) => {
+export const renderNetworkArchitecture = (
+  model: ModelConfig, 
+  datasetInfo: DatasetInfo | null,
+  handleLayerChange: (
+    modelType: string,
+    index: number,
+    field: keyof LayerConfig,
+    value: number | string | boolean
+  ) => void
+) => {
   if (!Object.keys(neuralModels).includes(model.modelType)) return null;
 
   const layers = [
-    { type: "Input", units: datasetInfo?.shape[1] || "N/A", color: "bg-blue-200 text-blue-800", activation: "" },
+    {
+      type: "Input",
+      units: datasetInfo?.shape[1] || "N/A",
+      color: "bg-blue-100 text-blue-900",
+      activation: "",
+      filters: null,
+      kernel_size: null,
+      pool_size: null,
+      return_sequences: null,
+      editable: false,
+    },
     ...model.hyperparameters.layers.map((layer: LayerConfig, index: number) => ({
       type: `Hidden ${index + 1}`,
       units: layer.units,
-      color: "bg-green-200 text-green-800",
+      color: "bg-teal-100 text-teal-900",
       activation: layer.activation,
+      filters: layer.filters || null,
+      kernel_size: layer.kernel_size || null,
+      pool_size: layer.pool_size || null,
+      return_sequences: layer.return_sequences || null,
+      editable: true,
     })),
-    { type: "Output", units: 1, color: "bg-purple-200 text-purple-800", activation: "" },
+    {
+      type: "Output",
+      units: 1,
+      color: "bg-purple-100 text-purple-900",
+      activation: "",
+      filters: null,
+      kernel_size: null,
+      pool_size: null,
+      return_sequences: null,
+      editable: false,
+    },
   ];
 
   return (
     <div className="mt-4">
       <h3 className="text-lg font-medium mb-2">Network Architecture ({model.modelType})</h3>
-      <div className="relative flex items-center h-32">
+      <div className="relative flex items-center h-auto flex-wrap gap-4">
         {layers.map((layer, index) => (
           <div
             key={index}
-            className={`${layer.color} p-4 rounded-lg shadow-md w-40 h-24 absolute`}
-            style={{ transform: `translateX(${index * 80}px)`, zIndex: index }}
+            className={`${layer.color} p-4 rounded-lg w-48 min-h-24`}
+            style={{ position: "relative" }}
           >
             <h4 className="font-semibold">{layer.type}</h4>
-            <p>Units: {layer.units}</p>
-            {layer.activation && <p>Act: {layer.activation}</p>}
+            {layer.editable ? (
+              <>
+                <Input
+                  type="number"
+                  value={layer.units}
+                  onChange={(e) => (model.modelType, index - 1, "units", Number(e.target.value))}
+                  min={1}
+                  placeholder="Units"
+                  className="mb-2 mt-2 bg-white"
+                />
+                <Select
+                  value={layer.activation}
+                  onValueChange={(val) => handleLayerChange(model.modelType, index - 1, "activation", val)}
+                >
+                  <SelectTrigger className="mb-2 bg-white">
+                    <SelectValue placeholder="Activation" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="relu">ReLU</SelectItem>
+                    <SelectItem value="sigmoid">Sigmoid</SelectItem>
+                    <SelectItem value="tanh">Tanh</SelectItem>
+                    <SelectItem value="linear">Linear</SelectItem>
+                  </SelectContent>
+                </Select>
+                {model.modelType === "convolutional_neural_network" && (
+                  <>
+                    <Input
+                      type="number"
+                      value={layer.filters || 32}
+                      onChange={(e) => handleLayerChange(model.modelType, index - 1, "filters", Number(e.target.value))}
+                      min={1}
+                      placeholder="Filters"
+                      className="mb-2 bg-white"
+                    />
+                    <Input
+                      type="number"
+                      value={layer.kernel_size || 3}
+                      onChange={(e) =>
+                        handleLayerChange(model.modelType, index - 1, "kernel_size", Number(e.target.value))
+                      }
+                      min={1}
+                      placeholder="Kernel Size"
+                      className="mb-2 bg-white"
+                    />
+                    <Input
+                      type="number"
+                      value={layer.pool_size || 2}
+                      onChange={(e) => handleLayerChange(model.modelType, index - 1, "pool_size", Number(e.target.value))}
+                      min={1}
+                      placeholder="Pool Size"
+                      className="mb-2 bg-white"
+                    />
+                  </>
+                )}
+                {model.modelType === "recurrent_neural_network" && (
+                  <div className="flex items-center space-x-2 mt-2">
+                    <label className="text-sm">Return Seq</label>
+                    <Switch
+                      checked={layer.return_sequences || false}
+                      onCheckedChange={(checked) =>
+                        handleLayerChange(model.modelType, index - 1, "return_sequences", checked)
+                      }
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <p>Units: {layer.units}</p>
+                {layer.activation && <p>Act: {layer.activation}</p>}
+                {layer.filters && <p>Filters: {layer.filters}</p>}
+                {layer.kernel_size && <p>Kernel: {layer.kernel_size}</p>}
+                {layer.pool_size && <p>Pool: {layer.pool_size}</p>}
+                {layer.return_sequences !== null && <p>Seq: {layer.return_sequences ? "Yes" : "No"}</p>}
+              </>
+            )}
           </div>
         ))}
       </div>

@@ -45,6 +45,10 @@ interface ChartConfig {
 interface LayerConfig {
   units: number;
   activation: string;
+  filters?: number;           // For CNN
+  kernel_size?: number;       // For CNN
+  pool_size?: number;         // For CNN
+  return_sequences?: boolean; // For RNN
 }
 
 interface ModelConfig {
@@ -160,15 +164,28 @@ export default function ModelSelection() {
 
   const handleAddLayer = (modelType: string) => {
     setSelectedModels((prev) =>
-      prev.map((m) =>
-        m.modelType === modelType && modelCategories.neural[m.modelType]
-          ? { ...m, hyperparameters: { ...m.hyperparameters, layers: [...m.hyperparameters.layers, { units: 32, activation: "relu" }] } }
-          : m
-      )
+      prev.map((m) => {
+        if (m.modelType !== modelType || !modelCategories.neural[m.modelType]) return m;
+        const newLayer =
+          m.modelType === "convolutional_neural_network"
+            ? { units: 32, activation: "relu", filters: 32, kernel_size: 3, pool_size: 2 }
+            : m.modelType === "recurrent_neural_network"
+            ? { units: 32, activation: "relu", return_sequences: false }
+            : { units: 32, activation: "relu" };
+        return {
+          ...m,
+          hyperparameters: { ...m.hyperparameters, layers: [...m.hyperparameters.layers, newLayer] },
+        };
+      })
     );
   };
 
-  const handleLayerChange = (modelType: string, index: number, field: keyof LayerConfig, value: number | string) => {
+  const handleLayerChange = (
+    modelType: string,
+    index: number,
+    field: keyof LayerConfig,
+    value: number | string | boolean
+  ) => {
     setSelectedModels((prev) =>
       prev.map((m) => {
         if (m.modelType !== modelType || !modelCategories.neural[m.modelType]) return m;
@@ -288,7 +305,7 @@ export default function ModelSelection() {
               <Accordion type="single" collapsible>
                 {Object.entries(modelCategories).map(([category, models]) => (
                   <AccordionItem key={category} value={category}>
-                    <AccordionTrigger>{category.replace("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}</AccordionTrigger>
+                    <AccordionTrigger>{category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</AccordionTrigger>
                     <AccordionContent>
                       <div className="grid gap-2">
                         {Object.keys(models).map((model) => (
@@ -299,7 +316,7 @@ export default function ModelSelection() {
                               onCheckedChange={() => handleModelToggle(model, category)}
                             />
                             <label htmlFor={model} className="text-sm">
-                              {model.replace("_", " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}
+                              {model.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                             </label>
                           </div>
                         ))}
@@ -328,7 +345,7 @@ export default function ModelSelection() {
                         handleLayerChange,
                         model.modelType in neuralModels
                       )}
-                      {renderNetworkArchitecture(model, datasetInfo)}
+                      {renderNetworkArchitecture(model, datasetInfo, handleLayerChange)}
                     </div>
                   ))}
                 </div>
