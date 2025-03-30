@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Eye, Brain } from "lucide-react";
+import { Upload, Eye, Brain, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import {
   Dialog,
@@ -46,6 +46,7 @@ export default function DataManagement() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [projectName, setProjectName] = useState("");
+  const [description, setDescription] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [mongoUserId, setMongoUserId] = useState<string | null>(null);
   const [recommendations, setRecommendations] = useState<PreprocessingRecommendations | null>(null);
@@ -110,12 +111,13 @@ export default function DataManagement() {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !mongoUserId || !projectName) return;
+    if (!selectedFile || !mongoUserId || !projectName || !description) return;
 
     const formData = new FormData();
     formData.append("file", selectedFile);
     formData.append("user_id", mongoUserId);
     formData.append("project_name", projectName);
+    formData.append("dataset_description", description);
 
     try {
       const response = await fetch("http://127.0.0.1:5000/dataset/add_dataset", {
@@ -127,12 +129,53 @@ export default function DataManagement() {
       await fetchUserDatasets();
       setSelectedFile(null);
       setProjectName("");
+      setDescription("");
       toast({ title: "Success", description: "Dataset uploaded successfully" });
     } catch (error) {
       console.error("Error uploading file:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to upload dataset",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Corrected Delete dataset function
+  const handleDeleteDataset = async (datasetId: string) => {
+    if (!user) {
+      toast({ title: "Error", description: "User not authenticated", variant: "destructive" });
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete dataset ${datasetId}?`)) return;
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:5000/dataset/delete_dataset?dataset_id=${datasetId}&userId=${mongoUserId}`,
+        {
+          method: "DELETE",
+          credentials: "include",
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete dataset");
+      }
+
+      const result = await response.json();
+      // Remove dataset from state
+      setDatasets((prev) => prev.filter((dataset) => dataset._id !== datasetId));
+      toast({
+        title: "Success",
+        description: result.message || "Dataset deleted successfully",
+      });
+    } catch (error) {
+      console.error("Delete error:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete dataset",
         variant: "destructive",
       });
     }
@@ -192,6 +235,8 @@ export default function DataManagement() {
           remove_highly_correlated_columns: editedRecommendations.remove_highly_correlated_columns,
           start_preprocessing: true,
           Is_preprocessing_form_filled: true,
+          target_column: targetColumn,
+          what_user_wants_to_do: userGoal,
         },
       };
 
@@ -246,6 +291,12 @@ export default function DataManagement() {
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
             />
+            <Input
+              type="text"
+              placeholder="Description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
             <div className="flex items-center space-x-4">
               <Input type="file" onChange={handleFileChange} accept=".csv" />
               <Button onClick={handleUpload} disabled={!selectedFile || !projectName || !mongoUserId}>
@@ -279,7 +330,7 @@ export default function DataManagement() {
                 {datasets.map((dataset) => (
                   <TableRow key={dataset._id}>
                     <TableCell>{dataset.filename}</TableCell>
-                    <TableCell>{dataset.dataset_description || "No description"}</TableCell>
+                    <TableCell className="w-96">{dataset.dataset_description || "No description"}</TableCell>
                     <TableCell>
                       {dataset.is_preprocessing_done
                         ? "✅ Complete"
@@ -466,6 +517,13 @@ export default function DataManagement() {
                             </DialogFooter>
                           </DialogContent>
                         </Dialog>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteDataset(dataset._id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>

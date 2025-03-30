@@ -9,6 +9,7 @@ import { ArrowUpRight, Upload, Brain, TrendingUp } from "lucide-react";
 import { useUser } from "@clerk/nextjs";
 import { ProjectTimeline } from "@/components/project-timeline";
 import { toast } from "@/components/ui/use-toast";
+import { useRouter } from "next/navigation";
 
 interface DataStats {
   totalDatasets: number;
@@ -27,6 +28,7 @@ interface Project {
 export default function Dashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const { user } = useUser();
+  const router = useRouter();
   const [stats, setStats] = useState<DataStats>({
     totalDatasets: 0,
     preprocessedDatasets: 0,
@@ -120,7 +122,7 @@ export default function Dashboard() {
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold">Dashboard</h1>
         <p className="text-xl text-foreground">Hello, {user?.firstName || "User"}</p>
-        <Button>
+        <Button onClick={() => router.push('/data')}>
           <Upload className="mr-2 h-4 w-4" />
           New Dataset
         </Button>
