@@ -55,11 +55,20 @@ export default function DataManagement() {
   const [userGoal, setUserGoal] = useState("");
   const [targetColumn, setTargetColumn] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
+  const CACHE_DURATION = 10000; // 10 seconds cache
 
   const fetchUserDatasets = async () => {
     if (!user) return;
 
+    // Check if cache is still valid
+    const now = Date.now();
+    if (now - lastFetchTime < CACHE_DURATION && datasets.length > 0) {
+      return;
+    }
+
     try {
+      setIsLoading(true);
       const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
         credentials: "include",
       });
@@ -73,14 +82,22 @@ export default function DataManagement() {
         return;
       }
 
-      const datasetsPromises = datasetIds.map(async (id: string) => {
-        const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
-        if (!response.ok) return null;
-        return response.json();
-      });
+      // Batch fetch datasets
+      const batchSize = 5;
+      const batchedDatasets = [];
+      for (let i = 0; i < datasetIds.length; i += batchSize) {
+        const batch = datasetIds.slice(i, i + batchSize);
+        const batchPromises = batch.map(async (id: string) => {
+          const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
+          if (!response.ok) return null;
+          return response.json();
+        });
+        const results = await Promise.all(batchPromises);
+        batchedDatasets.push(...results.filter(data => data !== null));
+      }
 
-      const datasetsData = (await Promise.all(datasetsPromises)).filter((data) => data !== null);
-      setDatasets(datasetsData);
+      setDatasets(batchedDatasets);
+      setLastFetchTime(now);
     } catch (error) {
       console.error("Error fetching datasets:", error);
       toast({
@@ -275,7 +292,7 @@ export default function DataManagement() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto p-6 space-y-8">
       <h1 className="text-3xl font-bold">Data Management</h1>
 
       <Card>
