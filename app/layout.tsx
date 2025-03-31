@@ -80,6 +80,7 @@ export default function RootLayout({
             </AuthWrapper>
           </ThemeProvider>
         </ClerkProvider>
+        <Toaster />
       </body>
     </html>
   )

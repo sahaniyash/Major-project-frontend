@@ -9,7 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/use-toast";
 import "chart.js/auto";
-import { Line, Bar, Scatter } from "react-chartjs-2"; // Removed Doughnut since it wasn't used
+import { Line, Bar, Scatter, Pie, Doughnut, Radar } from "react-chartjs-2";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 interface Dataset {
   _id: string;
@@ -28,7 +30,23 @@ interface ChartConfig {
   chartType: string;
   xAxis: string;
   yAxis: string;
-  data: any;
+  data: {
+    labels?: string[];
+    datasets: {
+      label: string;
+      data: number[] | { x: number; y: number }[];
+      backgroundColor: string | string[];
+      borderColor: string | string[];
+      borderWidth: number;
+      tension?: number;
+      barPercentage?: number;
+      categoryPercentage?: number;
+    }[];
+  };
+}
+
+interface ChartOptions {
+  colorScheme: string;
 }
 
 export default function Preprocess() {
@@ -44,7 +62,33 @@ export default function Preprocess() {
   const [chartType, setChartType] = useState<string>("scatter");
   const [xAxis, setXAxis] = useState<string>("");
   const [yAxis, setYAxis] = useState<string>("");
-  const [savedCharts, setSavedCharts] = useState<ChartConfig[]>([]); // Store all generated charts locally
+  const [savedCharts, setSavedCharts] = useState<ChartConfig[]>([]);
+  const [chartOptions, setChartOptions] = useState<ChartOptions>({
+    colorScheme: "default",
+  });
+
+  const colorSchemes = {
+    default: {
+      backgroundColor: "rgba(75, 192, 192, 0.2)",
+      borderColor: "rgba(75, 192, 192, 1)",
+    },
+    blue: {
+      backgroundColor: "rgba(54, 162, 235, 0.2)",
+      borderColor: "rgba(54, 162, 235, 1)",
+    },
+    red: {
+      backgroundColor: "rgba(255, 99, 132, 0.2)",
+      borderColor: "rgba(255, 99, 132, 1)",
+    },
+    green: {
+      backgroundColor: "rgba(75, 192, 192, 0.2)",
+      borderColor: "rgba(75, 192, 192, 1)",
+    },
+    purple: {
+      backgroundColor: "rgba(153, 102, 255, 0.2)",
+      borderColor: "rgba(153, 102, 255, 1)",
+    },
+  };
 
   // Fetch datasets on mount
   useEffect(() => {
@@ -205,27 +249,131 @@ export default function Preprocess() {
       const response = await fetch("http://127.0.0.1:5000/dataset/visualize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataset_id: selectedDatasetId, chart_type: chartType, x_axis: xAxis, y_axis: yAxis }),
+        body: JSON.stringify({ 
+          dataset_id: selectedDatasetId, 
+          chart_type: chartType, 
+          x_axis: xAxis, 
+          y_axis: yAxis,
+          handle_categorical: true,
+          chart_options: chartOptions
+        }),
         credentials: "include",
       });
-      if (!response.ok) throw new Error((await response.json()).error || "Visualization failed");
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Visualization failed");
+      }
+      
       const data = await response.json();
+      const colors = colorSchemes[chartOptions.colorScheme as keyof typeof colorSchemes];
 
-      const chartConfig = {
-        labels: data.x_data,
-        datasets: [{
-          label: `${xAxis} vs ${yAxis}`,
-          data: chartType === "scatter" ? data.x_data.map((x: number, i: number) => ({ x, y: data.y_data[i] })) : data.y_data,
-          backgroundColor: "rgba(75, 192, 192, 0.2)",
-          borderColor: "rgba(75, 192, 192, 1)",
-          borderWidth: 1,
-        }],
-      };
+      // Handle different data types and chart types
+      let chartConfig: ChartConfig['data'];
+      switch (chartType) {
+        case "bar":
+          chartConfig = {
+            labels: data.x_data,
+            datasets: [{
+              label: `${xAxis} vs ${yAxis}`,
+              data: data.y_data,
+              backgroundColor: colors.backgroundColor,
+              borderColor: colors.borderColor,
+              borderWidth: 1,
+            }],
+          };
+          break;
 
-      // Add the new chart to savedCharts instead of setting chartData
+        case "scatter":
+          if (data.is_categorical) {
+            chartConfig = {
+              labels: data.x_data,
+              datasets: [{
+                label: `${xAxis} vs ${yAxis}`,
+                data: data.y_data,
+                backgroundColor: colors.backgroundColor,
+                borderColor: colors.borderColor,
+                borderWidth: 1,
+              }],
+            };
+          } else {
+            chartConfig = {
+              datasets: [{
+                label: `${xAxis} vs ${yAxis}`,
+                data: data.x_data.map((x: number, i: number) => ({ x, y: data.y_data[i] })),
+                backgroundColor: colors.backgroundColor,
+                borderColor: colors.borderColor,
+                borderWidth: 1,
+              }],
+            };
+          }
+          break;
+
+        case "line":
+          chartConfig = {
+            labels: data.x_data,
+            datasets: [{
+              label: `${xAxis} vs ${yAxis}`,
+              data: data.y_data,
+              backgroundColor: colors.backgroundColor,
+              borderColor: colors.borderColor,
+              borderWidth: 1,
+              tension: 0.1,
+            }],
+          };
+          break;
+
+        case "pie":
+          chartConfig = {
+            labels: data.x_data,
+            datasets: [{
+              label: `${xAxis} Distribution`,
+              data: data.y_data,
+              backgroundColor: Object.values(colorSchemes).map(scheme => scheme.backgroundColor).slice(0, data.x_data.length),
+              borderColor: Object.values(colorSchemes).map(scheme => scheme.borderColor).slice(0, data.x_data.length),
+              borderWidth: 1,
+            }],
+          };
+          break;
+
+        case "doughnut":
+          chartConfig = {
+            labels: data.x_data,
+            datasets: [{
+              label: `${xAxis} Distribution`,
+              data: data.y_data,
+              backgroundColor: Object.values(colorSchemes).map(scheme => scheme.backgroundColor).slice(0, data.x_data.length),
+              borderColor: Object.values(colorSchemes).map(scheme => scheme.borderColor).slice(0, data.x_data.length),
+              borderWidth: 1,
+            }],
+          };
+          break;
+
+        case "radar":
+          chartConfig = {
+            labels: data.x_data,
+            datasets: [{
+              label: `${xAxis} vs ${yAxis}`,
+              data: data.y_data,
+              backgroundColor: colors.backgroundColor,
+              borderColor: colors.borderColor,
+              borderWidth: 1,
+            }],
+          };
+          break;
+
+        default:
+          throw new Error("Invalid chart type");
+      }
+
       setSavedCharts((prev) => [
         ...prev,
-        { chartType, xAxis, yAxis, data: chartConfig },
+        { 
+          chartType: data.is_categorical && chartType === "scatter" ? "bar" : chartType, 
+          xAxis, 
+          yAxis, 
+          data: chartConfig 
+        },
       ]);
 
       toast({ title: "Success", description: "Chart generated successfully" });
@@ -240,15 +388,53 @@ export default function Preprocess() {
   };
 
   const renderChart = (chart: ChartConfig) => {
+    const options = {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: true,
+        },
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: chart.xAxis,
+          },
+          grid: {
+            display: true,
+          },
+        },
+        y: {
+          title: {
+            display: true,
+            text: chart.yAxis,
+          },
+          grid: {
+            display: true,
+          },
+        },
+      },
+      animation: {
+        duration: 1000,
+        easing: 'easeInOutQuart' as const,
+      },
+    };
+
     switch (chart.chartType) {
       case "scatter":
-        return <Scatter data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
+        return <Scatter data={chart.data} options={options} />;
       case "bar":
-        return <Bar data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
+        return <Bar data={chart.data} options={options} />;
       case "line":
-        return <Line data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
-      case "histogram":
-        return <Bar data={{ ...chart.data, datasets: [{ ...chart.data.datasets[0], barPercentage: 1, categoryPercentage: 1 }] }} options={{ responsive: true, maintainAspectRatio: false }} />;
+        return <Line data={chart.data} options={options} />;
+      case "pie":
+        return <Pie data={chart.data} options={options} />;
+      case "doughnut":
+        return <Doughnut data={chart.data} options={options} />;
+      case "radar":
+        return <Radar data={chart.data} options={options} />;
       default:
         return null;
     }
@@ -376,7 +562,9 @@ export default function Preprocess() {
                       <SelectItem value="scatter">Scatter Plot</SelectItem>
                       <SelectItem value="bar">Bar Chart</SelectItem>
                       <SelectItem value="line">Line Chart</SelectItem>
-                      <SelectItem value="histogram">Histogram</SelectItem>
+                      <SelectItem value="pie">Pie Chart</SelectItem>
+                      <SelectItem value="doughnut">Doughnut Chart</SelectItem>
+                      <SelectItem value="radar">Radar Chart</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -402,8 +590,20 @@ export default function Preprocess() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <label className="block mb-2">Color Scheme</label>
+                  <Select onValueChange={(value) => setChartOptions(prev => ({ ...prev, colorScheme: value }))} value={chartOptions.colorScheme}>
+                    <SelectTrigger><SelectValue placeholder="Select color scheme" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="default">Default</SelectItem>
+                      <SelectItem value="blue">Blue</SelectItem>
+                      <SelectItem value="red">Red</SelectItem>
+                      <SelectItem value="green">Green</SelectItem>
+                      <SelectItem value="purple">Purple</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button onClick={handleGenerateVisualization}>Generate Visualization</Button>
-                {/* Removed "View Saved Graphs" button */}
                 {savedCharts.length > 0 && (
                   <div className="mt-4">
                     <h2 className="text-xl font-semibold mb-4">Generated Charts</h2>

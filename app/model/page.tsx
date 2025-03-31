@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -16,6 +16,15 @@ import { naiveBayesModels } from "@/components/models/NaiveBayesModels";
 import { regressionModels } from "@/components/models/RegressionModels";
 import { neuralModels } from "@/components/models/NeuralModels";
 import { renderHyperparameters, renderNetworkArchitecture } from "@/components/models/ModelsUtils";
+import { Input } from "@/components/ui/input";
+import { Search, Filter, SlidersHorizontal } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Suspense } from "react";
 
 interface Dataset {
   _id: string;
@@ -56,6 +65,12 @@ interface ModelConfig {
   hyperparameters: Record<string, any>;
 }
 
+interface ModelCategories {
+  [key: string]: {
+    [key: string]: Record<string, any>;
+  };
+}
+
 export default function ModelSelection() {
   const { user } = useUser();
   const { toast } = useToast();
@@ -66,8 +81,11 @@ export default function ModelSelection() {
   const [targetColumn, setTargetColumn] = useState<string>("");
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>([]);
   const [savedCharts, setSavedCharts] = useState<ChartConfig[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("all");
+  const [expandedModel, setExpandedModel] = useState<string | null>(null);
 
-  const modelCategories = {
+  const modelCategories: ModelCategories = {
     classification: classificationModels,
     clustering: clusteringModels,
     naive_bayes: naiveBayesModels,
@@ -149,7 +167,9 @@ export default function ModelSelection() {
       if (prev.some((m) => m.modelType === model)) {
         return prev.filter((m) => m.modelType !== model);
       } else {
-        return [...prev, { modelType: model, hyperparameters: { ...modelCategories[category as keyof typeof modelCategories][model] } }];
+        const modelConfig = modelCategories[category]?.[model];
+        if (!modelConfig) return prev;
+        return [...prev, { modelType: model, hyperparameters: { ...modelConfig } }];
       }
     });
   };
@@ -244,9 +264,35 @@ export default function ModelSelection() {
     }
   };
 
+  // Filter models based on search and category
+  const filteredModels = useMemo(() => {
+    return Object.entries(modelCategories).flatMap(([category, models]) => {
+      return Object.keys(models)
+        .filter(model => {
+          const matchesSearch = model.toLowerCase().includes(searchTerm.toLowerCase());
+          const matchesCategory = activeCategory === "all" || category === activeCategory;
+          return matchesSearch && matchesCategory;
+        })
+        .map(model => ({
+          category,
+          name: model,
+          isSelected: selectedModels.some(m => m.modelType === model)
+        }));
+    });
+  }, [modelCategories, searchTerm, activeCategory, selectedModels]);
+
+  const isNeuralModel = (modelType: string): boolean => {
+    return Object.keys(neuralModels).includes(modelType);
+  };
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-6">Model Selection and Training</h1>
+    <div className="container mx-auto px-4 py-8 space-y-8">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Model Selection and Training</h1>
+          <p className="text-muted-foreground mt-2">Configure and train machine learning models</p>
+        </div>
+      </div>
 
       <Card className="mb-8">
         <CardHeader>
@@ -298,68 +344,115 @@ export default function ModelSelection() {
         <>
           <Card className="mb-8">
             <CardHeader>
-              <CardTitle>Select Models</CardTitle>
-              <CardDescription>Choose models and configure their hyperparameters</CardDescription>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Select Models</CardTitle>
+                  <CardDescription>Choose models and configure their hyperparameters</CardDescription>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search models..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 w-[250px]"
+                    />
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon">
+                        <Filter className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem onClick={() => setActiveCategory("all")}>
+                        All Categories
+                      </DropdownMenuItem>
+                      {Object.keys(modelCategories).map((category) => (
+                        <DropdownMenuItem
+                          key={category}
+                          onClick={() => setActiveCategory(category)}
+                        >
+                          {category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
-              <Accordion type="single" collapsible>
-                {Object.entries(modelCategories).map(([category, models]) => (
-                  <AccordionItem key={category} value={category}>
-                    <AccordionTrigger>{category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}</AccordionTrigger>
-                    <AccordionContent>
-                      <div className="grid gap-2">
-                        {Object.keys(models).map((model) => (
-                          <div key={model} className="flex items-center space-x-2">
-                            <Checkbox
-                              id={model}
-                              checked={selectedModels.some((m) => m.modelType === model)}
-                              onCheckedChange={() => handleModelToggle(model, category)}
-                            />
-                            <label htmlFor={model} className="text-sm">
-                              {model.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+              <div className="grid gap-4">
+                {filteredModels.map(({ category, name, isSelected }) => (
+                  <Card key={name} className={`hover:shadow-md transition-shadow ${isSelected ? 'border-primary' : ''}`}>
+                    <CardHeader className="py-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            id={name}
+                            checked={isSelected}
+                            onCheckedChange={() => handleModelToggle(name, category)}
+                          />
+                          <div>
+                            <label htmlFor={name} className="font-medium cursor-pointer">
+                              {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
                             </label>
+                            <p className="text-sm text-muted-foreground">
+                              {category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                            </p>
                           </div>
-                        ))}
+                        </div>
+                        {isSelected && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setExpandedModel(expandedModel === name ? null : name)}
+                          >
+                            <SlidersHorizontal className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
-                    </AccordionContent>
-                  </AccordionItem>
+                    </CardHeader>
+                    {isSelected && expandedModel === name && (
+                      <CardContent className="pt-0">
+                        <div className="border-t pt-4">
+                          {renderHyperparameters(
+                            selectedModels.find(m => m.modelType === name)!,
+                            handleHyperparameterChange,
+                            handleAddLayer,
+                            handleLayerChange,
+                            isNeuralModel(name)
+                          )}
+                          {isNeuralModel(name) && renderNetworkArchitecture(
+                            selectedModels.find(m => m.modelType === name)!,
+                            datasetInfo,
+                            handleLayerChange
+                          )}
+                        </div>
+                      </CardContent>
+                    )}
+                  </Card>
                 ))}
-              </Accordion>
+              </div>
             </CardContent>
           </Card>
-
-          {selectedModels.length > 0 && (
-            <Card className="mb-8">
-              <CardHeader>
-                <CardTitle>Configure Selected Models</CardTitle>
-                <CardDescription>Adjust hyperparameters for each model</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-6">
-                  {selectedModels.map((model) => (
-                    <div key={model.modelType}>
-                      {renderHyperparameters(
-                        model,
-                        handleHyperparameterChange,
-                        handleAddLayer,
-                        handleLayerChange,
-                        model.modelType in neuralModels
-                      )}
-                      {renderNetworkArchitecture(model, datasetInfo, handleLayerChange)}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
 
           <Card className="mb-8">
             <CardHeader>
               <CardTitle>Schedule Training</CardTitle>
-              <CardDescription>Add selected models to the training queue</CardDescription>
+              <CardDescription>
+                {selectedModels.length === 0
+                  ? "Select models to begin training"
+                  : `${selectedModels.length} model(s) selected for training`}
+              </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button onClick={handleScheduleTraining} disabled={!selectedModels.length || !targetColumn}>
+              <Button
+                onClick={handleScheduleTraining}
+                disabled={!selectedModels.length || !targetColumn}
+                className="w-full sm:w-auto"
+              >
                 Schedule Training
               </Button>
             </CardContent>
@@ -371,12 +464,24 @@ export default function ModelSelection() {
                 <CardTitle>Model Visualizations</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid gap-6">
+                <div className="grid gap-6 md:grid-cols-2">
                   {savedCharts.map((chart, index) => (
-                    <div key={index} className="border p-4 rounded-lg">
-                      <h3 className="text-lg font-medium mb-2">{chart.title}</h3>
-                      <div style={{ height: "400px" }}>{renderChart(chart)}</div>
-                    </div>
+                    <Card key={index} className="hover:shadow-md transition-shadow">
+                      <CardHeader>
+                        <CardTitle className="text-lg">{chart.title}</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="h-[300px]">
+                          <Suspense fallback={
+                            <div className="flex items-center justify-center h-full">
+                              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+                            </div>
+                          }>
+                            {renderChart(chart)}
+                          </Suspense>
+                        </div>
+                      </CardContent>
+                    </Card>
                   ))}
                 </div>
               </CardContent>

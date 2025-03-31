@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Eye, Brain, Trash2 } from "lucide-react";
+import { Upload, Eye, Brain, Trash2, CheckCircle2, Clock, Circle } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import {
   Dialog,
@@ -20,6 +20,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Dataset {
   _id: string;
@@ -349,17 +350,25 @@ export default function DataManagement() {
                     <TableCell>{dataset.filename}</TableCell>
                     <TableCell className="w-96">{dataset.dataset_description || "No description"}</TableCell>
                     <TableCell>
-                      {dataset.is_preprocessing_done
-                        ? "✅ Complete"
-                        : dataset.start_preprocessing
-                        ? "⏳ In Progress"
-                        : "⚪ Not Started"}
+                      <div className="flex items-center gap-2">
+                        {dataset.is_preprocessing_done ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : dataset.start_preprocessing ? (
+                          <Clock className="h-4 w-4 text-yellow-500 animate-pulse" />
+                        ) : (
+                          <Circle className="h-4 w-4 text-gray-400" />
+                        )}
+                        <span className="text-sm">
+                          {dataset.is_preprocessing_done
+                            ? "Complete"
+                            : dataset.start_preprocessing
+                            ? "In Progress"
+                            : "Not Started"}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
                         <Dialog
                           open={isDialogOpen && selectedDatasetId === dataset._id}
                           onOpenChange={(open) => {
