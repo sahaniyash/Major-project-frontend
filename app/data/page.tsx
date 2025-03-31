@@ -56,17 +56,9 @@ export default function DataManagement() {
   const [userGoal, setUserGoal] = useState("");
   const [targetColumn, setTargetColumn] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
-  const CACHE_DURATION = 10000; // 10 seconds cache
 
   const fetchUserDatasets = async () => {
     if (!user) return;
-
-    // Check if cache is still valid
-    const now = Date.now();
-    if (now - lastFetchTime < CACHE_DURATION && datasets.length > 0) {
-      return;
-    }
 
     try {
       setIsLoading(true);
@@ -98,7 +90,6 @@ export default function DataManagement() {
       }
 
       setDatasets(batchedDatasets);
-      setLastFetchTime(now);
     } catch (error) {
       console.error("Error fetching datasets:", error);
       toast({
@@ -114,8 +105,6 @@ export default function DataManagement() {
   useEffect(() => {
     if (user) {
       fetchUserDatasets();
-      const interval = setInterval(fetchUserDatasets, 30000); // Poll every 30 seconds
-      return () => clearInterval(interval);
     }
   }, [user]);
 
