@@ -1,312 +1,213 @@
 "use client";
 
-import { useState, useEffect, useMemo, lazy, Suspense } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ArrowUpRight, Upload, Brain, TrendingUp, Database } from "lucide-react";
-import { useUser } from "@clerk/nextjs";
-import { toast } from "@/components/ui/use-toast";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrowRight, Brain, Database, LineChart, Upload, X } from "lucide-react";
+import Link from "next/link";
+import { useUser, useAuth, SignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { useState } from "react";
 
-// Lazy load chart components
-const AreaChart = lazy(() => import("@/components/charts").then(mod => ({ default: mod.AreaChart })));
-const BarChart = lazy(() => import("@/components/charts").then(mod => ({ default: mod.BarChart })));
-const PieChart = lazy(() => import("@/components/charts").then(mod => ({ default: mod.PieChart })));
-const ScatterPlot = lazy(() => import("@/components/charts").then(mod => ({ default: mod.ScatterPlot })));
-const ProjectTimeline = lazy(() => import("@/components/project-timeline").then(mod => ({ default: mod.ProjectTimeline })));
-
-interface DataStats {
-  totalDatasets: number;
-  preprocessedDatasets: number;
-  pendingPreprocessing: number;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  type: string;
-  accuracy?: number;
-  createdAt: Date;
-}
-
-export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("overview");
+export default function LandingPage() {
   const { user } = useUser();
+  const { isSignedIn } = useAuth();
   const router = useRouter();
-  const [stats, setStats] = useState<DataStats>({
-    totalDatasets: 0,
-    preprocessedDatasets: 0,
-    pendingPreprocessing: 0,
-  });
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastFetchTime, setLastFetchTime] = useState<number>(0);
-  const CACHE_DURATION = 30000; // 30 seconds cache
+  const [showSignIn, setShowSignIn] = useState(false);
 
-  // Memoize chart data
-  const chartData = useMemo(() => [
-    { name: "Preprocessed", value: stats.preprocessedDatasets },
-    { name: "Pending", value: stats.pendingPreprocessing },
-    {
-      name: "Not Started",
-      value: stats.totalDatasets - stats.preprocessedDatasets - stats.pendingPreprocessing,
-    },
-  ], [stats]);
-
-  const fetchStats = async () => {
-    if (!user) return;
-
-    // Check if cache is still valid
-    const now = Date.now();
-    if (now - lastFetchTime < CACHE_DURATION && stats.totalDatasets > 0) {
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-      const userResponse = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
-        credentials: "include",
-      });
-      if (!userResponse.ok) {
-        throw new Error(`Failed to fetch user data: ${userResponse.status}`);
-      }
-      const userData = await userResponse.json();
-      const datasetIds = userData.dataset_ids || [];
-
-      if (datasetIds.length === 0) {
-        setStats({ totalDatasets: 0, preprocessedDatasets: 0, pendingPreprocessing: 0 });
-        setProjects([]);
-        return;
-      }
-
-      // Batch fetch datasets
-      const batchSize = 5;
-      const batchedDatasets = [];
-      for (let i = 0; i < datasetIds.length; i += batchSize) {
-        const batch = datasetIds.slice(i, i + batchSize);
-        const batchPromises = batch.map(async (id: string) =>
-          fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`, {
-            credentials: "include",
-          }).then((res) => {
-            if (!res.ok) return null;
-            return res.json();
-          })
-        );
-        const results = await Promise.all(batchPromises);
-        batchedDatasets.push(...results.filter((d) => d !== null));
-      }
-
-      // Calculate stats
-      const totalDatasets = batchedDatasets.length;
-      const preprocessedDatasets = batchedDatasets.filter((d: any) => d.is_preprocessing_done === true).length;
-      const pendingPreprocessing = batchedDatasets.filter(
-        (d: any) => d.start_preprocessing === true && d.is_preprocessing_done !== true
-      ).length;
-
-      setStats({ totalDatasets, preprocessedDatasets, pendingPreprocessing });
-      setLastFetchTime(now);
-
-      // Map datasets to projects
-      const projectData = batchedDatasets.map((d: any) => ({
-        id: d._id,
-        name: d.filename,
-        type: "Dataset",
-        createdAt: new Date(d.created_at || Date.now()),
-      }));
-      setProjects(projectData);
-    } catch (error) {
-      console.error("Error fetching dashboard stats:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load dashboard stats",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+  const handleGetStarted = () => {
+    if (isSignedIn) {
+      router.push("/dashboard");
+    } else {
+      setShowSignIn(true);
     }
   };
 
-  useEffect(() => {
-    if (user) {
-      fetchStats();
-      const interval = setInterval(fetchStats, 30000); // Poll every 30 seconds
-      return () => clearInterval(interval);
-    }
-  }, [user]);
-
   return (
-    <div className="container mx-auto p-6 space-y-8">
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground mt-2">Welcome back, {user?.firstName || 'User'}</p>
+    <div className="min-h-screen bg-background">
+      {/* Sign In Overlay */}
+      {showSignIn && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="relative bg-card p-8 rounded-lg shadow-lg min-w-[400px]">
+            <Button
+              variant="outline"
+              size="icon"
+              className="absolute right-2 top-2 z-[60] hover:bg-muted"
+              onClick={() => setShowSignIn(false)}
+            >
+              <X className="h-5 w-5" />
+            </Button>
+            <SignIn routing="hash" />
+          </div>
         </div>
-        <Button onClick={() => router.push('/data')} className="bg-primary hover:bg-primary/90">
-          <Upload className="mr-2 h-4 w-4" /> Upload Dataset
-        </Button>
+      )}
+
+      {/* Navigation */}
+      <div className="w-full fixed top-0 z-40 flex justify-center py-4">
+        <nav className="mx-auto px-8 py-3 rounded-full bg-background/60 backdrop-blur-md border border-border/40 shadow-lg">
+          <ul className="flex items-center gap-8">
+            <li>
+              <Link href="/" className="text-foreground/80 hover:text-foreground transition-colors">
+                Home
+              </Link>
+            </li>
+            {isSignedIn ? (
+              <>
+                <li>
+                  <Link href="/dashboard" className="text-foreground/80 hover:text-foreground transition-colors">
+                    Dashboard
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/data" className="text-foreground/80 hover:text-foreground transition-colors">
+                    Data
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/preprocess" className="text-foreground/80 hover:text-foreground transition-colors">
+                    Preprocess
+                  </Link>
+                </li>
+              </>
+            ) : null}
+            {!isSignedIn && (
+              <li>
+                <Button variant="outline" size="sm" className="ml-4" onClick={() => setShowSignIn(true)}>
+                  Sign In
+                </Button>
+              </li>
+            )}
+          </ul>
+        </nav>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Datasets</CardTitle>
-            <Database className="h-5 w-5 text-white" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center space-x-4">
-                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-                <p className="text-sm text-muted-foreground">Loading stats...</p>
-              </div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold text-white">{stats.totalDatasets}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {stats.totalDatasets === 0 ? "No datasets uploaded" : `${stats.totalDatasets} total datasets`}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Preprocessed Datasets</CardTitle>
-            <Brain className="h-5 w-5 text-white" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center space-x-4">
-                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-green-500"></div>
-                <p className="text-sm text-muted-foreground">Loading stats...</p>
-              </div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold text-white">{stats.preprocessedDatasets}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {stats.preprocessedDatasets === 0
-                    ? "No datasets preprocessed"
-                    : `${stats.preprocessedDatasets} completed`}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="hover:shadow-lg transition-shadow">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Preprocessing</CardTitle>
-            <ArrowUpRight className="h-5 w-5 text-white" />
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="flex items-center space-x-4">
-                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-orange-500"></div>
-                <p className="text-sm text-muted-foreground">Loading stats...</p>
-              </div>
-            ) : (
-              <>
-                <div className="text-2xl font-bold text-white">{stats.pendingPreprocessing}</div>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {stats.pendingPreprocessing === 0
-                    ? "No datasets pending"
-                    : `${stats.pendingPreprocessing} in queue`}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {/* Hero Section */}
+      <div className="container mx-auto px-4 py-24 mt-16">
+        <div className="text-center space-y-8">
+          <h1 className="text-6xl font-bold tracking-tight text-foreground sm:text-7xl">
+            Intelligent Data Analysis
+            <span className="bg-gradient-to-r from-blue-500 to-blue-700 bg-clip-text text-transparent"> Made Simple</span>
+          </h1>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
+            Upload, preprocess, and analyze your datasets with AI-powered recommendations. 
+            Transform your data into actionable insights.
+          </p>
+          <div className="flex justify-center gap-4">
+            <Button size="lg" className="bg-primary hover:bg-primary/90" onClick={handleGetStarted}>
+              Get Started <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+            <Link href="#features">
+              <Button size="lg" variant="outline">
+                Learn More
+              </Button>
+            </Link>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-muted/50 p-1">
-            <TabsTrigger value="overview" className="data-[state=active]:bg-background">Overview</TabsTrigger>
-            <TabsTrigger value="performance" className="data-[state=active]:bg-background">Performance</TabsTrigger>
-            <TabsTrigger value="models" className="data-[state=active]:bg-background">Models</TabsTrigger>
-          </TabsList>
-          <TabsContent value="overview" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle>Performance Over Time</CardTitle>
-                </CardHeader>
-                <CardContent className="h-[300px] relative">
-                  <Suspense fallback={
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-                    </div>
-                  }>
-                    <AreaChart data={chartData} />
-                  </Suspense>
-                </CardContent>
-              </Card>
-              <Card className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle>Dataset Status Distribution</CardTitle>
-                </CardHeader>
-                <CardContent className="h-[300px] relative">
-                  <Suspense fallback={
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-                    </div>
-                  }>
-                    <PieChart data={chartData} />
-                  </Suspense>
-                </CardContent>
-              </Card>
+      {/* Features Section */}
+      <div className="container mx-auto px-4 py-24">
+        <h2 className="text-4xl font-bold text-center mb-16 text-foreground">Key Features</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+          <Card className="border border-border hover:border-border/80 transition-colors">
+            <CardHeader>
+              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <Upload className="h-6 w-6 text-primary" />
+              </div>
+              <CardTitle>Easy Dataset Upload</CardTitle>
+              <CardDescription>
+                Upload your CSV files with a simple drag-and-drop interface
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="border border-border hover:border-border/80 transition-colors">
+            <CardHeader>
+              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <Brain className="h-6 w-6 text-primary" />
+              </div>
+              <CardTitle>AI-Powered Recommendations</CardTitle>
+              <CardDescription>
+                Get intelligent suggestions for data preprocessing based on your goals
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="border border-border hover:border-border/80 transition-colors">
+            <CardHeader>
+              <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mb-4">
+                <LineChart className="h-6 w-6 text-primary" />
+              </div>
+              <CardTitle>Advanced Analytics</CardTitle>
+              <CardDescription>
+                Visualize and analyze your data with powerful charts and insights
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </div>
+
+      {/* How It Works Section */}
+      <div className="bg-muted/50 py-24">
+        <div className="container mx-auto px-4">
+          <h2 className="text-4xl font-bold text-center mb-16 text-foreground">How It Works</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="text-center">
+              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-primary font-bold">1</span>
+              </div>
+              <h3 className="font-semibold mb-2 text-foreground">Upload Your Data</h3>
+              <p className="text-muted-foreground">Upload your CSV files and provide project details</p>
             </div>
-          </TabsContent>
-          <TabsContent value="performance">
-            <Card className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <CardTitle>Dataset Preprocessing Progress</CardTitle>
-              </CardHeader>
-              <CardContent className="h-[400px] relative">
-                <Suspense fallback={
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-                  </div>
-                }>
-                  <ScatterPlot data={[]} />
-                </Suspense>
-              </CardContent>
-            </Card>
-          </TabsContent>
-          <TabsContent value="models">
-            <Card className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <CardTitle>Model Comparison</CardTitle>
-              </CardHeader>
-              <CardContent className="h-[400px] relative">
-                <Suspense fallback={
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-                  </div>
-                }>
-                  <BarChart data={[]} />
-                </Suspense>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            <div className="text-center">
+              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-primary font-bold">2</span>
+              </div>
+              <h3 className="font-semibold mb-2 text-foreground">Set Your Goals</h3>
+              <p className="text-muted-foreground">Define your objectives and target variables</p>
+            </div>
+            <div className="text-center">
+              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-primary font-bold">3</span>
+              </div>
+              <h3 className="font-semibold mb-2 text-foreground">Get Recommendations</h3>
+              <p className="text-muted-foreground">Receive AI-powered preprocessing suggestions</p>
+            </div>
+            <div className="text-center">
+              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-primary font-bold">4</span>
+              </div>
+              <h3 className="font-semibold mb-2 text-foreground">Analyze Results</h3>
+              <p className="text-muted-foreground">View processed data and insights</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <Card className="mt-8 hover:shadow-lg transition-shadow">
-        <CardHeader>
-          <CardTitle>Recent Datasets</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Suspense fallback={
-            <div className="flex items-center justify-center py-8">
-              <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+      {/* CTA Section */}
+      <div className="container mx-auto px-4 py-24">
+        <Card className="bg-card border-border">
+          <CardContent className="py-16">
+            <div className="text-center space-y-6">
+              <h2 className="text-4xl font-bold text-foreground">Ready to Get Started?</h2>
+              <p className="text-xl text-muted-foreground">
+                Upload your first dataset and experience the power of AI-driven data management
+              </p>
+              <Button size="lg" className="mt-4 bg-primary hover:bg-primary/90" onClick={handleGetStarted}>
+                Start Now <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
             </div>
-          }>
-            <ProjectTimeline projects={projects} />
-          </Suspense>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Footer */}
+      <div className="bg-background border-t border-border">
+        <div className="container mx-auto px-4 py-8">
+          <p className="text-sm text-muted-foreground text-center">
+            &copy; {new Date().getFullYear()} Data Analysis Platform. All rights reserved.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

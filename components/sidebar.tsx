@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 
 const mainNavItems = [
-  { name: "Dashboard", href: "/", icon: Home },
+  { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Data Management", href: "/data", icon: Database },
   { name: "Preprocessing", href: "/preprocess", icon: BarChart2 },
   { name: "Model Training", href: "/model", icon: Brain },
