@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useNotifications } from "@/contexts/notification-context";
 
 interface Dataset {
   _id: string;
@@ -56,6 +57,7 @@ export default function DataManagement() {
   const [userGoal, setUserGoal] = useState("");
   const [targetColumn, setTargetColumn] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const { addNotification } = useNotifications();
 
   const fetchUserDatasets = async () => {
     if (!user) return;
@@ -148,43 +150,56 @@ export default function DataManagement() {
     }
   };
 
-  // Corrected Delete dataset function
   const handleDeleteDataset = async (datasetId: string) => {
-    if (!user) {
+    if (!user || !mongoUserId) {
       toast({ title: "Error", description: "User not authenticated", variant: "destructive" });
+      addNotification("User not authenticated", "error");
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete dataset ${datasetId}?`)) return;
+    if (!confirm(`Are you sure you want to delete this dataset?`)) return;
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:5000/dataset/delete_dataset?dataset_id=${datasetId}&userId=${mongoUserId}`,
+        `http://127.0.0.1:5000/dataset/delete_dataset?dataset_id=${datasetId}&user_id=${mongoUserId}`,
         {
           method: "DELETE",
           credentials: "include",
         }
       );
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to delete dataset");
+        // Handle specific error messages from the backend
+        const errorMessage = data.error || "Failed to delete dataset";
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        addNotification(errorMessage, "error");
+        return;
       }
 
-      const result = await response.json();
-      // Remove dataset from state
+      // Success case
       setDatasets((prev) => prev.filter((dataset) => dataset._id !== datasetId));
+      const successMessage = data.message || "Dataset deleted successfully";
       toast({
         title: "Success",
-        description: result.message || "Dataset deleted successfully",
+        description: successMessage,
       });
+      addNotification(successMessage, "success");
+      
     } catch (error) {
       console.error("Delete error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete dataset";
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete dataset",
+        description: errorMessage,
         variant: "destructive",
       });
+      addNotification(errorMessage, "error");
     }
   };
 
