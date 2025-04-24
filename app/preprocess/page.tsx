@@ -19,6 +19,12 @@ interface Dataset {
   remove_duplicate: boolean;
   scaling_and_normalization: boolean;
   increase_the_size_of_dataset: boolean;
+  remove_highly_correlated_columns: boolean;
+  dimensionality_reduction: boolean;
+  fill_string_type_columns: boolean;
+  fill_empty_rows_using: string;
+  target_column: string;
+  what_user_wants_to_do: string;
 }
 
 export default function Preprocess() {
@@ -151,6 +157,12 @@ export default function Preprocess() {
                                 {dataset.remove_duplicate && <li>Removed duplicate entries</li>}
                                 {dataset.scaling_and_normalization && <li>Applied scaling and normalization</li>}
                                 {dataset.increase_the_size_of_dataset && <li>Increased dataset size</li>}
+                                {dataset.remove_highly_correlated_columns && <li>Removed highly correlated columns</li>}
+                                {dataset.dimensionality_reduction && <li>Performed dimensionality reduction</li>}
+                                {dataset.fill_string_type_columns && <li>Filled string type columns</li>}
+                                {dataset.fill_empty_rows_using && <li>Filled empty rows using {dataset.fill_empty_rows_using}</li>}
+                                {dataset.target_column && <li>Target column: {dataset.target_column}</li>}
+                                {dataset.what_user_wants_to_do && <li>User goal: {dataset.what_user_wants_to_do}</li>}
                               </ul>
                             </div>
                           )}
