@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Search, Filter, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react";
+import { Search, Filter, ChevronDown, ChevronUp } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -20,9 +20,6 @@ import { clusteringModels } from "@/components/models/ClusteringModels";
 import { naiveBayesModels } from "@/components/models/NaiveBayesModels";
 import { regressionModels } from "@/components/models/RegressionModels";
 import { neuralModels } from "@/components/models/NeuralModels";
-import { Suspense } from "react";
-import { Line, Bar } from "react-chartjs-2";
-import "chart.js/auto";
 
 interface Dataset {
   _id: string;
@@ -41,22 +38,6 @@ interface DatasetInfo {
   };
 }
 
-interface ChartConfig {
-  modelType: string;
-  chartType: string;
-  title: string;
-  data: any;
-}
-
-interface LayerConfig {
-  units: number;
-  activation: string;
-  filters?: number;
-  kernel_size?: number;
-  pool_size?: number;
-  return_sequences?: boolean;
-}
-
 interface ModelConfig {
   modelType: string;
   classificationId: string;
@@ -66,7 +47,11 @@ interface ModelConfig {
 interface Classification {
   _id: string;
   classification_name: string;
-  models: { _id: string; model_name: string; hyperparameters: Record<string, any> }[];
+  models: { model_id: string; model_name: string; hyperparameters: Record<string, any> }[];
+}
+
+interface ModelRecommendations {
+  [classification: string]: string[];
 }
 
 interface ModelCategories {
@@ -74,98 +59,6 @@ interface ModelCategories {
     [key: string]: Record<string, any>;
   };
 }
-
-// Render hyperparameters as editable inputs
-const renderHyperparameters = (
-  model: ModelConfig,
-  onHyperparameterChange: (modelType: string, param: string, value: any, modelId: string) => void,
-  addLayerHandler: () => void,
-  layerChangeHandler: (modelType: string, index: number, field: keyof LayerConfig, value: number | string | boolean, modelId: string) => void,
-  isNeural: boolean,
-  modelId: string
-) => {
-  return (
-    <div className="space-y-4">
-      <h5 className="font-semibold">Hyperparameters</h5>
-      <div className="grid gap-4">
-        {Object.entries(model.hyperparameters).map(([param, value]) => {
-          // Skip layers for neural models (handled separately)
-          if (param === "layers" && isNeural) return null;
-
-          const inputId = `${model.classificationId}-${model.modelType}-${param}`;
-          const isBoolean = typeof value === "boolean";
-          const isNumber = typeof value === "number" || (value === null && (param.includes("rate") || param.includes("size") || param.includes("depth")));
-
-          return (
-            <div key={param} className="flex items-center gap-4">
-              <label htmlFor={inputId} className="w-1/3 text-sm font-medium">
-                {param.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-              </label>
-              {isBoolean ? (
-                <Checkbox
-                  id={inputId}
-                  checked={value}
-                  onCheckedChange={(checked) => onHyperparameterChange(model.modelType, param, checked, modelId)}
-                />
-              ) : (
-                <Input
-                  id={inputId}
-                  type={isNumber ? "number" : "text"}
-                  value={value ?? ""}
-                  onChange={(e) => {
-                    const newValue = isNumber ? parseFloat(e.target.value) || null : e.target.value || null;
-                    onHyperparameterChange(model.modelType, param, newValue, modelId);
-                  }}
-                  placeholder={value === null ? "null" : ""}
-                  className="w-2/3"
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-      {isNeural && (
-        <div>
-          <h5 className="font-semibold mb-2">Neural Network Layers</h5>
-          <Button onClick={addLayerHandler} variant="outline" size="sm">
-            Add Layer
-          </Button>
-          {/* Simplified layer rendering */}
-          {model.hyperparameters.layers?.map((layer: LayerConfig, index: number) => (
-            <div key={index} className="mt-4 border p-4 rounded-md">
-              <h6 className="font-medium">Layer {index + 1}</h6>
-              <div className="grid gap-4 mt-2">
-                {Object.entries(layer).map(([field, value]) => (
-                  <div key={field} className="flex items-center gap-4">
-                    <label className="w-1/3 text-sm font-medium">
-                      {field.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                    </label>
-                    {typeof value === "boolean" ? (
-                      <Checkbox
-                        checked={value}
-                        onCheckedChange={(checked) => layerChangeHandler(model.modelType, index, field as keyof LayerConfig, checked, modelId)}
-                      />
-                    ) : (
-                      <Input
-                        type={typeof value === "number" ? "number" : "text"}
-                        value={value ?? ""}
-                        onChange={(e) => {
-                          const newValue = typeof value === "number" ? parseFloat(e.target.value) || null : e.target.value || null;
-                          layerChangeHandler(model.modelType, index, field as keyof LayerConfig, newValue, modelId);
-                        }}
-                        className="w-2/3"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
 
 export default function ModelSelection() {
   const { user } = useUser();
@@ -175,15 +68,12 @@ export default function ModelSelection() {
   const [selectedDatasetId, setSelectedDatasetId] = useState<string>("");
   const [datasetInfo, setDatasetInfo] = useState<DatasetInfo | null>(null);
   const [selectedModels, setSelectedModels] = useState<ModelConfig[]>([]);
-  const [savedCharts, setSavedCharts] = useState<ChartConfig[]>([]);
   const [classifications, setClassifications] = useState<Classification[]>([]);
+  const [recommendedModels, setRecommendedModels] = useState<ModelRecommendations | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [expandedModel, setExpandedModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedClassification, setExpandedClassification] = useState<string | null>(null);
-  const [isAddingModels, setIsAddingModels] = useState(false);
-  const [newModelSelections, setNewModelSelections] = useState<{ category: string; name: string }[]>([]);
 
   const modelCategories: ModelCategories = {
     classification: classificationModels,
@@ -197,121 +87,89 @@ export default function ModelSelection() {
   const fetchClassifications = async () => {
     setLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/model/get_all_models", {
+      const response = await fetch("http://127.0.0.1:5000/admin/get_all_models", {
         headers: { "Cache-Control": "no-cache" },
       });
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Failed to fetch classifications: ${errorText}`);
+        throw new Error(`Failed to fetch classifications: ${errorText} (Status: ${response.status})`);
       }
       const data = await response.json();
-      console.log("Fetched classifications:", JSON.stringify(data, null, 2));
+      console.log("Fetched classifications (Status:", response.status, "):", JSON.stringify(data, null, 2));
 
-      let fetchedClassifications: Classification[] = [];
-
-      // Handle different response formats
-      if (Array.isArray(data.classifications)) {
-        fetchedClassifications = data.classifications
-          .filter((classification: any) => classification.classification_name && typeof classification.classification_name === "string")
-          .map((classification: any) => ({
-            _id: classification._id?.toString() || classification.classification_name,
-            classification_name: classification.classification_name,
-            models: classification.models
-              ? Array.isArray(classification.models)
-                ? classification.models
-                    .filter((model: any) => model._id && model.model_name && typeof model.model_name === "string")
-                    .map((model: any) => ({
-                      _id: model._id.toString(),
-                      model_name: model.model_name,
-                      hyperparameters: model.hyperparameters || {},
-                    }))
-                : Object.keys(classification.models)
-                    .filter((modelName) => typeof modelName === "string" && classification.models[modelName]._id)
-                    .map((modelName) => ({
-                      _id: classification.models[modelName]._id.toString(),
-                      model_name: modelName,
-                      hyperparameters: classification.models[modelName].hyperparameters || {},
-                    }))
-              : [],
-          }));
-      } else if (Array.isArray(data)) {
-        fetchedClassifications = data
-          .filter((classification: any) => classification.classification_name && typeof classification.classification_name === "string")
-          .map((classification: any) => ({
-            _id: classification._id?.toString() || classification.classification_name,
-            classification_name: classification.classification_name,
-            models: classification.models
-              ? Array.isArray(classification.models)
-                ? classification.models
-                    .filter((model: any) => model._id && model.model_name && typeof model.model_name === "string")
-                    .map((model: any) => ({
-                      _id: model._id.toString(),
-                      model_name: model.model_name,
-                      hyperparameters: model.hyperparameters || {},
-                    }))
-                : Object.keys(classification.models)
-                    .filter((modelName) => typeof modelName === "string" && classification.models[modelName]._id)
-                    .map((modelName) => ({
-                      _id: classification.models[modelName]._id.toString(),
-                      model_name: modelName,
-                      hyperparameters: classification.models[modelName].hyperparameters || {},
-                    }))
-              : [],
-          }));
-      } else if (typeof data === "object" && data !== null) {
-        fetchedClassifications = Object.keys(data)
-          .filter((name) => typeof name === "string")
-          .map((name) => ({
-            _id: data[name]._id?.toString() || name,
-            classification_name: name,
-            models: data[name].models
-              ? Array.isArray(data[name].models)
-                ? data[name].models
-                    .filter((model: any) => model._id && model.model_name && typeof model.model_name === "string")
-                    .map((model: any) => ({
-                      _id: model._id.toString(),
-                      model_name: model.model_name,
-                      hyperparameters: model.hyperparameters || {},
-                    }))
-                : Object.keys(data[name].models)
-                    .filter((modelName) => typeof modelName === "string" && data[name].models[modelName]._id)
-                    .map((modelName) => ({
-                      _id: data[name].models[modelName]._id.toString(),
-                      model_name: modelName,
-                      hyperparameters: data[name].models[modelName].hyperparameters || {},
-                    }))
-              : [],
-          }));
-      } else {
-        console.warn("Unexpected response format:", data);
-        throw new Error("Unexpected response format from /get_all_models");
+      // Handle response format
+      if (!data || typeof data !== "object") {
+        console.error("Invalid response data:", data);
+        throw new Error("Invalid response: Data is not an object");
       }
 
-      // Filter out invalid classifications and log warnings for models without _id
-      fetchedClassifications = fetchedClassifications
-        .filter((c) => c._id && c.classification_name && Array.isArray(c.models))
-        .map((c) => ({
-          ...c,
-          models: c.models.filter((m) => {
-            if (!m._id) {
-              console.warn(`Model ${m.model_name} in classification ${c.classification_name} lacks a valid _id`);
-              return false;
-            }
-            return true;
-          }),
-        }));
+      const classifications = data.classifications || [];
+      if (!Array.isArray(classifications)) {
+        console.error("Classifications is not an array:", classifications);
+        throw new Error(`Unexpected response format: classifications is not an array: ${JSON.stringify(data, null, 2)}`);
+      }
+
+      const fetchedClassifications: Classification[] = classifications
+        .map((classification: any) => {
+          if (!classification.classification_name || typeof classification.classification_name !== "string") {
+            console.warn("Skipping invalid classification:", JSON.stringify(classification, null, 2));
+            return null;
+          }
+
+          const models = Array.isArray(classification.models)
+            ? classification.models
+                .map((model: any) => {
+                  if (!model.model_id || !model.model_name || typeof model.model_name !== "string") {
+                    console.warn(
+                      `Skipping invalid model in ${classification.classification_name}:`,
+                      JSON.stringify(model, null, 2)
+                    );
+                    return null;
+                  }
+                  return {
+                    model_id: String(model.model_id),
+                    model_name: model.model_name,
+                    hyperparameters: model.hyperparameters && typeof model.hyperparameters === "object" ? model.hyperparameters : {},
+                  };
+                })
+                .filter((model: any) => model !== null)
+            : [];
+
+          return {
+            _id: classification._id ? String(classification._id) : classification.classification_name,
+            classification_name: classification.classification_name,
+            models,
+          };
+        })
+        .filter((c: any): c is Classification => c !== null && c._id && c.classification_name && Array.isArray(c.models));
 
       console.log("Processed classifications:", JSON.stringify(fetchedClassifications, null, 2));
       setClassifications(fetchedClassifications);
+
       if (fetchedClassifications.length === 0) {
         toast({
           title: "Info",
           description: "No valid classifications found in the database.",
         });
+      } else if (fetchedClassifications.every((c) => c.models.length === 0)) {
+        toast({
+          title: "Warning",
+          description: "No models found for any classifications. Please check the database.",
+          variant: "destructive",
+        });
       } else if (fetchedClassifications.some((c) => c.models.length === 0)) {
         toast({
           title: "Warning",
-          description: "Some classifications have no valid models due to missing model IDs.",
+          description: "Some classifications have no models. Please check the database.",
+          variant: "default",
+        });
+      }
+
+      if (data.error) {
+        console.warn("Response included error:", data.error);
+        toast({
+          title: "Warning",
+          description: `Partial data received: ${data.error}`,
           variant: "default",
         });
       }
@@ -376,17 +234,21 @@ export default function ModelSelection() {
 
     setIsAnalyzing(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/model/analyze", {
+      // Analyze dataset
+      const analyzeResponse = await fetch("http://127.0.0.1:5000/model/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ datasetId: selectedDatasetId }),
       });
 
-      if (!response.ok) throw new Error(await response.text());
+      if (!analyzeResponse.ok) throw new Error(await analyzeResponse.text());
 
-      const data = await response.json();
+      const data = await analyzeResponse.json();
       setDatasetInfo(data);
       toast({ title: "Success", description: "Dataset analyzed successfully" });
+
+      // Fetch recommendations
+      await fetchRecommendations();
     } catch (error) {
       console.error("Analyze error:", error);
       toast({
@@ -394,12 +256,35 @@ export default function ModelSelection() {
         description: error instanceof Error ? error.message : "Failed to analyze dataset",
         variant: "destructive",
       });
+      setDatasetInfo(null);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleModelToggle = (model: { _id: string; model_name: string; hyperparameters: Record<string, any> }, classificationId: string) => {
+  const fetchRecommendations = async () => {
+    try {
+      const recommendResponse = await fetch(`http://127.0.0.1:5000/model/get-preferred-model?dataset_id=${selectedDatasetId}`);
+      if (!recommendResponse.ok) {
+        const errorData = await recommendResponse.json();
+        throw new Error(errorData.error || "Failed to fetch recommended models");
+      }
+
+      const recommendations = await recommendResponse.json();
+      setRecommendedModels(recommendations);
+      toast({ title: "Success", description: "Model recommendations fetched" });
+    } catch (error) {
+      console.error("Recommendation error:", error);
+      toast({
+        title: "Warning",
+        description: error instanceof Error ? error.message : "No model recommendations available",
+        variant: "default",
+      });
+      setRecommendedModels(null);
+    }
+  };
+
+  const handleModelToggle = (model: { model_id: string; model_name: string; hyperparameters: Record<string, any> }, classificationId: string) => {
     setSelectedModels((prev) => {
       if (prev.some((m) => m.modelType === model.model_name && m.classificationId === classificationId)) {
         return prev.filter((m) => !(m.modelType === model.model_name && m.classificationId === classificationId));
@@ -409,167 +294,6 @@ export default function ModelSelection() {
         { modelType: model.model_name, classificationId, hyperparameters: model.hyperparameters },
       ];
     });
-  };
-
-  const handleHyperparameterChange = async (modelType: string, classificationId: string, param: string, value: any, modelId: string) => {
-    if (!modelId) {
-      toast({
-        title: "Error",
-        description: "Cannot update hyperparameters: Model ID is missing",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Update local state
-    setSelectedModels((prev) =>
-      prev.map((m) =>
-        m.modelType === modelType && m.classificationId === classificationId
-          ? { ...m, hyperparameters: { ...m.hyperparameters, [param]: value } }
-          : m
-      )
-    );
-
-    // Find the model in classifications to get the full hyperparameters
-    const classification = classifications.find((c) => c._id === classificationId);
-    const model = classification?.models.find((m) => m.model_name === modelType);
-    if (!model) {
-      toast({
-        title: "Error",
-        description: "Model not found in classifications",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Create updated hyperparameters object
-    const updatedHyperparameters = { ...model.hyperparameters, [param]: value };
-
-    // Send update to backend
-    try {
-      const response = await fetch(`http://127.0.0.1:5000/model/update_model_hyperparameters/${modelId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hyperparameters: updatedHyperparameters }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update hyperparameters");
-      }
-
-      toast({
-        title: "Success",
-        description: `Hyperparameter ${param} updated successfully`,
-      });
-
-      // Refresh classifications to reflect backend changes
-      await fetchClassifications();
-    } catch (error) {
-      console.error("Update hyperparameter error:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update hyperparameter",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleAddLayer = (modelType: string, classificationId: string) => {
-    setSelectedModels((prev) =>
-      prev.map((m) => {
-        if (m.modelType !== modelType || m.classificationId !== classificationId || !modelCategories.neural[m.modelType])
-          return m;
-        const newLayer =
-          m.modelType === "convolutional_neural_network"
-            ? { units: 32, activation: "relu", filters: 32, kernel_size: 3, pool_size: 2 }
-            : m.modelType === "recurrent_neural_network"
-            ? { units: 32, activation: "relu", return_sequences: false }
-            : { units: 32, activation: "relu" };
-        return {
-          ...m,
-    hyperparameters: { ...m.hyperparameters, layers: [...(m.hyperparameters.layers || []), newLayer] },
-        };
-      })
-    );
-  };
-
-  const handleLayerChange = async (
-    modelType: string,
-    classificationId: string,
-    index: number,
-    field: keyof LayerConfig,
-    value: number | string | boolean,
-    modelId: string
-  ) => {
-    if (!modelId) {
-      toast({
-        title: "Error",
-        description: "Cannot update layer: Model ID is missing",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Update local state
-    setSelectedModels((prev) =>
-      prev.map((m) => {
-        if (m.modelType !== modelType || m.classificationId !== classificationId || !modelCategories.neural[m.modelType])
-          return m;
-        const newLayers = [...(m.hyperparameters.layers || [])];
-        newLayers[index] = { ...newLayers[index], [field]: value };
-        return { ...m, hyperparameters: { ...m.hyperparameters, layers: newLayers } };
-      })
-    );
-
-    // Find the model in classifications to get the full hyperparameters
-    const classification = classifications.find((c) => c._id === classificationId);
-    const model = classification?.models.find((m) => m.model_name === modelType);
-    if (!model) {
-      toast({
-        title: "Error",
-        description: "Model not found in classifications",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Create updated hyperparameters with modified layers
-    const updatedHyperparameters = {
-      ...model.hyperparameters,
-      layers: model.hyperparameters.layers?.map((layer: LayerConfig, i: number) =>
-        i === index ? { ...layer, [field]: value } : layer
-      ) || [],
-    };
-
-    // Send update to backend
-    try {
-      const response = await fetch(`http://127.0.0.1:5000/model/update_model_hyperparameters/${modelId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hyperparameters: updatedHyperparameters }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to update layer hyperparameters");
-      }
-
-      toast({
-        title: "Success",
-        description: `Layer ${index + 1} updated successfully`,
-      });
-
-      // Refresh classifications to reflect backend changes
-      await fetchClassifications();
-    } catch (error) {
-      console.error("Update layer hyperparameter error:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update layer hyperparameter",
-        variant: "destructive",
-      });
-    }
   };
 
   const handleScheduleTraining = async () => {
@@ -620,97 +344,26 @@ export default function ModelSelection() {
     }
   };
 
-  const handleNewModelToggle = (category: string, name: string) => {
-    setNewModelSelections((prev) => {
-      const modelKey = `${category}-${name}`;
-      if (prev.some((m) => `${m.category}-${m.name}` === modelKey)) {
-        return prev.filter((m) => `${m.category}-${m.name}` !== modelKey);
-      }
-      return [...prev, { category, name }];
-    });
-  };
-
-  const handleAddModels = async (classificationId: string) => {
-    if (newModelSelections.length === 0) {
-      toast({ title: "Error", description: "Please select at least one model", variant: "destructive" });
-      return;
-    }
-
-    setIsAddingModels(true);
-    try {
-      const failedModels: string[] = [];
-      for (const model of newModelSelections) {
-        try {
-          const modelConfig = modelCategories[model.category][model.name];
-          console.log(`Adding model: ${model.name} to classification ${classificationId}`, modelConfig);
-          const modelResponse = await fetch("http://127.0.0.1:5000/model/add_model", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              classification_id: classificationId,
-              model_name: model.name,
-              hyperparameters: modelConfig,
-            }),
-          });
-          if (!modelResponse.ok) {
-            const errorText = await modelResponse.text();
-            throw new Error(`Failed to add model ${model.name}: ${errorText}`);
-          }
-          const modelData = await modelResponse.json();
-          console.log(`Model ${model.name} added:`, modelData);
-        } catch (error) {
-          console.error(`Error adding model ${model.name}:`, error);
-          failedModels.push(model.name);
-        }
-      }
-      if (failedModels.length > 0) {
-        toast({
-          title: "Partial Success",
-          description: `Failed to add models: ${failedModels.join(", ")}`,
-          variant: "default",
-        });
-      } else {
-        toast({ title: "Success", description: "Models added successfully" });
-      }
-      await fetchClassifications();
-      setNewModelSelections([]);
-      setExpandedClassification(null);
-    } catch (error) {
-      console.error("Add models error:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add models",
-        variant: "destructive",
-      });
-    } finally {
-      setIsAddingModels(false);
-    }
-  };
-
-  const renderChart = (chart: ChartConfig) => {
-    switch (chart.chartType) {
-      case "line":
-        return <Line data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
-      case "bar":
-        return <Bar data={chart.data} options={{ responsive: true, maintainAspectRatio: false }} />;
-      default:
-        return null;
-    }
-  };
-
   const filteredModels = useMemo(() => {
-    return Object.entries(modelCategories).flatMap(([category, models]) =>
-      Object.keys(models)
+    return classifications.flatMap((classification) =>
+      classification.models
         .filter((model) => {
-          const matchesSearch = model.toLowerCase().includes(searchTerm.toLowerCase());
-          const matchesCategory = activeCategory === "all" || category === activeCategory;
+          const matchesSearch = model.model_name.toLowerCase().includes(searchTerm.toLowerCase());
+          const matchesCategory = activeCategory === "all" || classification.classification_name.toLowerCase() === activeCategory;
           return matchesSearch && matchesCategory;
         })
-        .map((model) => ({ category, name: model }))
+        .map((model) => ({ classification: classification.classification_name, model: model.model_name }))
     );
-  }, [modelCategories, searchTerm, activeCategory]);
+  }, [classifications, searchTerm, activeCategory]);
 
-  const isNeuralModel = (modelType: string): boolean => Object.keys(neuralModels).includes(modelType);
+  // Case-insensitive lookup for recommended models
+  const getRecommendedModels = (classificationName: string) => {
+    if (!recommendedModels) return null;
+    const key = Object.keys(recommendedModels).find(
+      (k) => k.toLowerCase() === classificationName.toLowerCase()
+    );
+    return key ? recommendedModels[key] : null;
+  };
 
   return (
     <div className="container mx-auto px-4 py-8 space-y-8">
@@ -724,7 +377,7 @@ export default function ModelSelection() {
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>Select Dataset</CardTitle>
-          <CardDescription>Choose a dataset for training</CardDescription>
+          <CardDescription>Choose a datasetsouthern region of the United States</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex gap-4">
@@ -747,6 +400,9 @@ export default function ModelSelection() {
             <Button onClick={handleAnalyzeDataset} disabled={isAnalyzing || !selectedDatasetId || loading}>
               {isAnalyzing ? "Analyzing..." : "Analyze Dataset"}
             </Button>
+            <Button onClick={fetchRecommendations} disabled={!datasetInfo || loading}>
+              Fetch Model Recommendations
+            </Button>
           </div>
           {datasetInfo && (
             <div className="mt-4 p-4 bg-muted rounded-lg space-y-2">
@@ -761,7 +417,7 @@ export default function ModelSelection() {
       <Card className="mb-8">
         <CardHeader>
           <CardTitle>Select Models for Training</CardTitle>
-          <CardDescription>Choose models from available classifications</CardDescription>
+          <CardDescription>Choose models from available classifications or recommendations</CardDescription>
         </CardHeader>
         <CardContent>
           {loading && <p className="text-muted-foreground">Loading classifications...</p>}
@@ -787,9 +443,12 @@ export default function ModelSelection() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent>
                     <DropdownMenuItem onClick={() => setActiveCategory("all")}>All Categories</DropdownMenuItem>
-                    {Object.keys(modelCategories).map((category) => (
-                      <DropdownMenuItem key={category} onClick={() => setActiveCategory(category)}>
-                        {category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                    {classifications.map((classification) => (
+                      <DropdownMenuItem
+                        key={classification._id}
+                        onClick={() => setActiveCategory(classification.classification_name.toLowerCase())}
+                      >
+                        {classification.classification_name}
                       </DropdownMenuItem>
                     ))}
                   </DropdownMenuContent>
@@ -822,92 +481,74 @@ export default function ModelSelection() {
                         <div>
                           <h4 className="font-semibold mb-2">Available Models</h4>
                           {classification.models.length === 0 ? (
-                            <p className="text-muted-foreground">No models in this classification</p>
+                            <p className="text-muted-foreground">No models in this classification. Check the database.</p>
                           ) : (
                             <div className="grid gap-2">
                               {classification.models
                                 .filter((model) =>
                                   model.model_name.toLowerCase().includes(searchTerm.toLowerCase()) &&
-                                  (activeCategory === "all" || Object.keys(modelCategories).some((cat) => modelCategories[cat][model.model_name]))
+                                  (activeCategory === "all" || classification.classification_name.toLowerCase() === activeCategory)
                                 )
                                 .map((model) => (
-                                  <Card key={model._id}>
-                                    <CardHeader className="py-3">
-                                      <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                          <Checkbox
-                                            id={`${classification._id}-${model._id}`}
-                                            checked={selectedModels.some(
-                                              (m) => m.modelType === model.model_name && m.classificationId === classification._id
-                                            )}
-                                            onCheckedChange={() => handleModelToggle(model, classification._id)}
-                                            disabled={loading}
-                                          />
-                                          <label htmlFor={`${classification._id}-${model._id}`} className="font-medium">
-                                            {model.model_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                                          </label>
-                                        </div>
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          onClick={() =>
-                                            setExpandedModel(
-                                              expandedModel === `${classification._id}-${model._id}`
-                                                ? null
-                                                : `${classification._id}-${model._id}`
-                                            )
-                                          }
-                                          disabled={loading}
-                                        >
-                                          <SlidersHorizontal className="h-4 w-4" />
-                                        </Button>
-                                      </div>
-                                    </CardHeader>
-                                    {expandedModel === `${classification._id}-${model._id}` && (
-                                      <CardContent className="pt-0">
-                                        <div className="border-t pt-4">
-                                          {renderHyperparameters(
-                                            { modelType: model.model_name, classificationId: classification._id, hyperparameters: model.hyperparameters },
-                                            handleHyperparameterChange,
-                                            () => handleAddLayer(model.model_name, classification._id),
-                                            handleLayerChange,
-                                            isNeuralModel(model.model_name),
-                                            model._id
-                                          )}
-                                        </div>
-                                      </CardContent>
-                                    )}
-                                  </Card>
+                                  <div key={model.model_id} className="flex items-center gap-3">
+                                    <Checkbox
+                                      id={`${classification._id}-${model.model_id}`}
+                                      checked={selectedModels.some(
+                                        (m) => m.modelType === model.model_name && m.classificationId === classification._id
+                                      )}
+                                      onCheckedChange={() => handleModelToggle(model, classification._id)}
+                                      disabled={loading}
+                                    />
+                                    <label htmlFor={`${classification._id}-${model.model_id}`} className="font-medium">
+                                      {model.model_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                                    </label>
+                                  </div>
                                 ))}
                             </div>
                           )}
                         </div>
-                        <div>
-                          <h4 className="font-semibold mb-2">Add New Models</h4>
-                          <div className="grid gap-2 mb-4">
-                            {Object.entries(modelCategories).flatMap(([category, models]) =>
-                              Object.keys(models).map((name) => (
-                                <div key={`${category}-${name}`} className="flex items-center gap-3">
-                                  <Checkbox
-                                    id={`new-${category}-${name}`}
-                                    checked={newModelSelections.some((m) => m.category === category && m.name === name)}
-                                    onCheckedChange={() => handleNewModelToggle(category, name)}
-                                    disabled={loading || isAddingModels}
-                                  />
-                                  <label htmlFor={`new-${category}-${name}`} className="font-medium">
-                                    {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ({category.replace(/_/g, " ")})
-                                  </label>
-                                </div>
-                              ))
-                            )}
+                        {getRecommendedModels(classification.classification_name) && (
+                          <div>
+                            <h4 className="font-semibold mb-2">Recommended Models</h4>
+                            <div className="grid gap-2">
+                              {getRecommendedModels(classification.classification_name)!.map((modelName) => {
+                                const model = classification.models.find((m) => m.model_name === modelName);
+                                return (
+                                  <div key={modelName} className="flex items-center gap-3">
+                                    <Checkbox
+                                      id={`${classification._id}-${modelName}`}
+                                      checked={selectedModels.some(
+                                        (m) => m.modelType === modelName && m.classificationId === classification._id
+                                      )}
+                                      onCheckedChange={() => {
+                                        if (model) {
+                                          handleModelToggle(model, classification._id);
+                                        } else {
+                                          // Fallback to default hyperparameters if model not in DB
+                                          const categoryKey = Object.keys(modelCategories).find(
+                                            (key) => modelCategories[key][modelName]
+                                          );
+                                          const hyperparameters = categoryKey ? modelCategories[categoryKey][modelName] : {};
+                                          handleModelToggle(
+                                            { model_id: modelName, model_name: modelName, hyperparameters },
+                                            classification._id
+                                          );
+                                        }
+                                      }}
+                                      disabled={loading}
+                                    />
+                                    <label htmlFor={`${classification._id}-${modelName}`} className="font-medium">
+                                      {modelName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (Recommended)
+                                    </label>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                          <Button
-                            onClick={() => handleAddModels(classification._id)}
-                            disabled={loading || isAddingModels || newModelSelections.length === 0}
-                          >
-                            {isAddingModels ? "Adding..." : "Add Selected Models"}
-                          </Button>
-                        </div>
+                        )}
+                        {recommendedModels === null && datasetInfo && (
+                          <p className="text-muted-foreground">No model recommendations available for this dataset.</p>
+                        )}
                       </div>
                     </CardContent>
                   )}
@@ -915,7 +556,7 @@ export default function ModelSelection() {
               ))
             )}
           </div>
-          {/* Debug output */}
+          {/* Debug output
           {!loading && (
             <Card className="mt-4">
               <CardHeader>
@@ -926,59 +567,35 @@ export default function ModelSelection() {
               </CardContent>
             </Card>
           )}
+          {recommendedModels && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Debug Recommended Models</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre>{JSON.stringify(recommendedModels, null, 2)}</pre>
+              </CardContent>
+            </Card>
+          )} */}
         </CardContent>
       </Card>
 
       {datasetInfo && (
-        <>
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Schedule Training</CardTitle>
-              <CardDescription>Start the training process for selected models</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button
-                onClick={handleScheduleTraining}
-                disabled={!datasetInfo || selectedModels.length === 0 || loading}
-                className="w-full sm:w-auto"
-              >
-                Schedule Training
-              </Button>
-            </CardContent>
-          </Card>
-
-          {savedCharts.length > 0 && (
-            <Card className="mb-8">
-              <CardHeader>
-                <CardTitle>Model Visualizations</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-6 md:grid-cols-2">
-                  {savedCharts.map((chart, index) => (
-                    <Card key={index} className="hover:shadow-md transition-shadow">
-                      <CardHeader>
-                        <CardTitle className="text-lg">{chart.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="h-[300px]">
-                          <Suspense
-                            fallback={
-                              <div className="flex items-center justify-center h-full">
-                                <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
-                              </div>
-                            }
-                          >
-                            {renderChart(chart)}
-                          </Suspense>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </>
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>Schedule Training</CardTitle>
+            <CardDescription>Start the training process for selected models</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              onClick={handleScheduleTraining}
+              disabled={!datasetInfo || selectedModels.length === 0 || loading}
+              className="w-full sm:w-auto"
+            >
+              Schedule Training
+            </Button>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
