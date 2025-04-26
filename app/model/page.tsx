@@ -16,6 +16,20 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { useUser } from "@clerk/nextjs";
 
+// Utility function to format model names
+const formatModelName = (name: string) =>
+  name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Placeholders for hyperparameters
+const hyperparamPlaceholders: Record<string, string> = {
+  fit_intercept: "Select true/false",
+  max_iter: "Enter a number",
+  C: "Enter a float",
+  kernel: "Enter a string",
+  n_estimators: "Enter a number",
+  default: "Enter a value",
+};
+
 interface Dataset {
   _id: string;
   filename: string;
@@ -53,10 +67,10 @@ export default function ModelSelection() {
   const [expandedHyperparameters, setExpandedHyperparameters] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
 
-  // Toggle hyperparameters visibility for a model
-  const toggleHyperparameters = (modelId: string) => {
+  // Toggle hyperparameters visibility for a model (only one open at a time per classification)
+  const toggleHyperparameters = (modelId: string, classificationId: string) => {
     setExpandedHyperparameters((prev) =>
-      prev.includes(modelId) ? prev.filter((id) => id !== modelId) : [...prev, modelId]
+      prev.includes(modelId) ? [] : [`${classificationId}-${modelId}`]
     );
   };
 
@@ -68,37 +82,30 @@ export default function ModelSelection() {
     const hyperparams = model.hyperparameters || {};
     const modelKey = `${classificationId}-${model.model_id}`;
     const isExpanded = expandedHyperparameters.includes(modelKey);
+    const isSelected = selectedModels.some(
+      (m) => m.modelType === model.model_name && m.classificationId === classificationId
+    );
 
     return (
-      <div className="ml-8 mt-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => toggleHyperparameters(modelKey)}
-          className="text-muted-foreground hover:bg-muted transition-colors"
-        >
-          {isExpanded ? (
-            <ChevronUp className="h-4 w-4 mr-1" />
-          ) : (
-            <ChevronDown className="h-4 w-4 mr-1" />
-          )}
-          {isExpanded ? "Hide Hyperparameters" : "Show Hyperparameters"}
-        </Button>
+      <div className="mt-2">
         {isExpanded && (
-          <div className="mt-2 p-4 bg-muted rounded-md transition-all duration-300 ease-in-out space-y-3">
+          <div className="p-3 rounded-md transition-all duration-300 ease-in-out space-y-2">
             {Object.entries(hyperparams).length === 0 ? (
-              <p className="text-sm text-muted-foreground italic">No hyperparameters available</p>
+              <p className="text-sm text-muted-foreground italic">
+                This model has no configurable parameters
+              </p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {Object.entries(hyperparams).map(([param, type]) => {
                   const selectedModel = selectedModels.find(
                     (m) => m.modelType === model.model_name && m.classificationId === classificationId
                   );
                   const currentValue = selectedModel?.hyperparameters[param] ?? null;
+                  const placeholder = hyperparamPlaceholders[param] || hyperparamPlaceholders.default;
 
                   if (type === "bool") {
                     return (
-                      <div key={param} className="flex items-center gap-3">
+                      <div key={param} className="flex items-center gap-2">
                         <label className="text-sm font-medium text-foreground">{param}:</label>
                         <Select
                           value={currentValue?.toString() ?? ""}
@@ -110,9 +117,9 @@ export default function ModelSelection() {
                               value === "true" ? true : false
                             )
                           }
-                          disabled={loading}
+                          disabled={loading || !isSelected}
                         >
-                          <SelectTrigger className="w-[120px] text-sm">
+                          <SelectTrigger className="w-[140px] text-xs">
                             <SelectValue placeholder="Select" />
                           </SelectTrigger>
                           <SelectContent>
@@ -124,7 +131,7 @@ export default function ModelSelection() {
                     );
                   } else if (Array.isArray(type) && type.includes("int") && type.includes("None")) {
                     return (
-                      <div key={param} className="flex items-center gap-3">
+                      <div key={param} className="flex items-center gap-2">
                         <label className="text-sm font-medium text-foreground">{param}:</label>
                         <Select
                           value={currentValue?.toString() ?? ""}
@@ -136,10 +143,10 @@ export default function ModelSelection() {
                               value === "None" ? null : parseInt(value)
                             )
                           }
-                          disabled={loading}
+                          disabled={loading || !isSelected}
                         >
-                          <SelectTrigger className="w-[120px] text-sm">
-                            <SelectValue placeholder="Select" />
+                          <SelectTrigger className="w-[140px] text-xs">
+                            <SelectValue placeholder="Select a value" />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="None">None</SelectItem>
@@ -152,11 +159,12 @@ export default function ModelSelection() {
                     );
                   } else if (type === "int") {
                     return (
-                      <div key={param} className="flex items-center gap-3">
+                      <div key={param} className="flex items-center gap-2">
                         <label className="text-sm font-medium text-foreground">{param}:</label>
                         <Input
                           type="number"
                           value={currentValue ?? ""}
+                          placeholder={placeholder}
                           onChange={(e) =>
                             updateHyperparameters(
                               model.model_name,
@@ -165,22 +173,23 @@ export default function ModelSelection() {
                               parseInt(e.target.value) || null
                             )
                           }
-                          className="w-[120px] text-sm"
-                          disabled={loading}
+                          className="w-[140px] text-xs"
+                          disabled={loading || !isSelected}
                         />
                       </div>
                     );
                   } else {
                     return (
-                      <div key={param} className="flex items-center gap-3">
+                      <div key={param} className="flex items-center gap-2">
                         <label className="text-sm font-medium text-foreground">{param}:</label>
                         <Input
                           value={currentValue ?? ""}
+                          placeholder={placeholder}
                           onChange={(e) =>
                             updateHyperparameters(model.model_name, classificationId, param, e.target.value)
                           }
-                          className="w-[120px] text-sm"
-                          disabled={loading}
+                          className="w-[140px] text-xs"
+                          disabled={loading || !isSelected}
                         />
                       </div>
                     );
@@ -230,20 +239,17 @@ export default function ModelSelection() {
       const data = await response.json();
 
       if (!data || typeof data !== "object") {
-        console.error("Invalid response data:", data);
         throw new Error("Invalid response: Data is not an object");
       }
 
       const classifications = data.classifications || [];
       if (!Array.isArray(classifications)) {
-        console.error("Classifications is not an array:", classifications);
-        throw new Error(`Unexpected response format: classifications is not an array`);
+        throw new Error("Unexpected response format: classifications is not an array");
       }
 
       const fetchedClassifications: Classification[] = classifications
         .map((classification: any) => {
           if (!classification.classification_name || typeof classification.classification_name !== "string") {
-            console.warn("Skipping invalid classification:", classification);
             return null;
           }
 
@@ -251,7 +257,6 @@ export default function ModelSelection() {
             ? classification.models
                 .map((model: any) => {
                   if (!model.model_id || !model.model_name || typeof model.model_name !== "string") {
-                    console.warn(`Skipping invalid model in ${classification.classification_name}:`, model);
                     return null;
                   }
                   return {
@@ -293,7 +298,6 @@ export default function ModelSelection() {
       }
 
       if (data.error) {
-        console.warn("Response included error:", data.error);
         toast({
           title: "Warning",
           description: `Partial data received: ${data.error}`,
@@ -301,7 +305,6 @@ export default function ModelSelection() {
         });
       }
     } catch (error) {
-      console.error("Fetch classifications error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to fetch classifications",
@@ -339,7 +342,6 @@ export default function ModelSelection() {
 
         await fetchClassifications();
       } catch (error) {
-        console.error("Error fetching data:", error);
         toast({
           title: "Error",
           description: "Failed to fetch datasets or classifications",
@@ -368,7 +370,6 @@ export default function ModelSelection() {
       setRecommendedModels(recommendations);
       toast({ title: "Success", description: "Model recommendations fetched" });
     } catch (error) {
-      console.error("Recommendation error:", error);
       toast({
         title: "Warning",
         description: error instanceof Error ? error.message : "No model recommendations available",
@@ -381,6 +382,9 @@ export default function ModelSelection() {
   const handleModelToggle = (model: { model_id: string; model_name: string; hyperparameters: Record<string, any> }, classificationId: string) => {
     setSelectedModels((prev) => {
       if (prev.some((m) => m.modelType === model.model_name && m.classificationId === classificationId)) {
+        setExpandedHyperparameters((prevParams) =>
+          prevParams.filter((id) => id !== `${classificationId}-${model.model_id}`)
+        );
         return prev.filter((m) => !(m.modelType === model.model_name && m.classificationId === classificationId));
       }
       const initialHyperparameters = Object.keys(model.hyperparameters).reduce((acc, param) => {
@@ -438,7 +442,6 @@ export default function ModelSelection() {
       toast({ title: "Success", description: "Model training scheduled successfully" });
       setSelectedModels([]);
     } catch (error) {
-      console.error("Scheduling error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to schedule training",
@@ -468,23 +471,24 @@ export default function ModelSelection() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8 space-y-8">
-      <div className="flex justify-between items-center">
+    <div className="container mx-auto px-4 py-8 space-y-6">
+      <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Model Training</h1>
           <p className="text-muted-foreground mt-2">Select and configure models to train on your dataset</p>
         </div>
       </div>
 
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Select Dataset</CardTitle>
+      {/* Dataset Selection Card */}
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl">Select Dataset</CardTitle>
           <CardDescription>Choose a dataset to fetch model recommendations and train models</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <Select onValueChange={setSelectedDatasetId} value={selectedDatasetId} disabled={loading}>
-              <SelectTrigger className="w-[300px]">
+              <SelectTrigger className="w-full sm:w-[300px]">
                 <SelectValue placeholder="Select a dataset" />
               </SelectTrigger>
               <SelectContent>
@@ -499,215 +503,214 @@ export default function ModelSelection() {
                 )}
               </SelectContent>
             </Select>
-            <Button onClick={fetchRecommendations} disabled={!selectedDatasetId || loading}>
+            <Button 
+              onClick={fetchRecommendations} 
+              disabled={!selectedDatasetId || loading}
+              className="w-full sm:w-auto"
+            >
               Fetch Model Recommendations
             </Button>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="mb-8">
-        <CardHeader>
-          <CardTitle>Select Models for Training</CardTitle>
+      {/* Model Selection Card */}
+      <Card>
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl">Select Models</CardTitle>
           <CardDescription>Choose and configure models from available classifications</CardDescription>
         </CardHeader>
         <CardContent>
-          {loading && <p className="text-muted-foreground">Loading classifications...</p>}
-          {!loading && (
-            <div className="flex justify-between items-center mb-6">
-              <h4 className="font-semibold">Filter Models</h4>
-              <div className="flex items-center gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                  <Input
-                    placeholder="Search models..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 w-[250px]"
-                    disabled={loading}
-                  />
+          {loading ? (
+            <p className="text-muted-foreground">Loading classifications...</p>
+          ) : (
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row justify-between gap-4">
+                <h4 className="font-semibold self-center">Filter Models</h4>
+                <div className="flex flex-col sm:flex-row items-center gap-4">
+                  <div className="relative w-full sm:w-auto">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                    <Input
+                      placeholder="Search models..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 w-full sm:w-[250px]"
+                      disabled={loading}
+                    />
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="icon" disabled={loading} className="w-full sm:w-auto">
+                        <Filter className="h-4 w-4 mr-2" />
+                        <span className="sm:hidden">Filter Categories</span>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => setActiveCategory("all")}>All Categories</DropdownMenuItem>
+                      {classifications.map((classification) => (
+                        <DropdownMenuItem
+                          key={classification._id}
+                          onClick={() => setActiveCategory(classification.classification_name.toLowerCase())}
+                        >
+                          {classification.classification_name}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="icon" disabled={loading}>
-                      <Filter className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem onClick={() => setActiveCategory("all")}>All Categories</DropdownMenuItem>
-                    {classifications.map((classification) => (
-                      <DropdownMenuItem
-                        key={classification._id}
-                        onClick={() => setActiveCategory(classification.classification_name.toLowerCase())}
-                      >
-                        {classification.classification_name}
-                      </DropdownMenuItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
               </div>
-            </div>
-          )}
-          <div className="space-y-6">
-            {!loading && classifications.length === 0 ? (
-              <p className="text-muted-foreground">No classifications available. Contact an admin to add classifications.</p>
-            ) : (
-              classifications.map((classification) => (
-                <Card key={classification._id} className="shadow-sm">
-                  <CardHeader
-                    className="cursor-pointer"
-                    onClick={() => setExpandedClassification(expandedClassification === classification._id ? null : classification._id)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <CardTitle>{classification.classification_name}</CardTitle>
-                      {expandedClassification === classification._id ? (
-                        <ChevronUp className="h-4 w-4" />
-                      ) : (
-                        <ChevronDown className="h-4 w-4" />
-                      )}
-                    </div>
-                  </CardHeader>
-                  {expandedClassification === classification._id && (
-                    <CardContent className="pt-4">
-                      <div className="space-y-6">
-                        <div>
-                          <h4 className="font-semibold mb-3">Available Models</h4>
-                          {classification.models.length === 0 ? (
-                            <p className="text-muted-foreground">No models in this classification. Check the database.</p>
+
+              {/* Classifications */}
+              <div className="space-y-4">
+                {classifications.length === 0 ? (
+                  <p className="text-muted-foreground">No classifications available. Contact an admin to add classifications.</p>
+                ) : (
+                  classifications.map((classification) => (
+                    <Card key={classification._id} className="shadow-sm border">
+                      <CardHeader
+                        className="cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => setExpandedClassification(expandedClassification === classification._id ? null : classification._id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg">{classification.classification_name}</CardTitle>
+                          {expandedClassification === classification._id ? (
+                            <ChevronUp className="h-5 w-5" />
                           ) : (
-                            <div className="space-y-4">
-                              {classification.models
-                                .filter((model) =>
-                                  model.model_name.toLowerCase().includes(searchTerm.toLowerCase()) &&
-                                  (activeCategory === "all" || classification.classification_name.toLowerCase() === activeCategory)
-                                )
-                                .map((model) => (
-                                  <div
-                                    key={model.model_id}
-                                    className="p-3 border border-border rounded-md hover:bg-muted/50 transition-colors"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <Checkbox
-                                        id={`${classification._id}-${model.model_id}`}
-                                        checked={selectedModels.some(
-                                          (m) => m.modelType === model.model_name && m.classificationId === classification._id
-                                        )}
-                                        onCheckedChange={() => handleModelToggle(model, classification._id)}
-                                        disabled={loading}
-                                        className="h-5 w-5"
-                                      />
-                                      <label
-                                        htmlFor={`${classification._id}-${model.model_id}`}
-                                        className="font-medium cursor-pointer hover:text-primary transition-colors"
-                                      >
-                                        {model.model_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                                      </label>
-                                    </div>
-                                    {renderHyperparameters(model, classification._id)}
-                                  </div>
-                                ))}
-                            </div>
+                            <ChevronDown className="h-5 w-5" />
                           )}
                         </div>
-                        {getRecommendedModels(classification.classification_name) && (
-                          <div>
-                            <h4 className="font-semibold mb-3">Recommended Models</h4>
-                            <div className="space-y-4">
-                              {getRecommendedModels(classification.classification_name)!.map((modelName) => {
-                                const model = classification.models.find((m) => m.model_name === modelName);
-                                return (
-                                  <div
-                                    key={modelName}
-                                    className="p-3 border border-border rounded-md hover:bg-muted/50 transition-colors"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <Checkbox
-                                        id={`${classification._id}-${modelName}`}
-                                        checked={selectedModels.some(
-                                          (m) => m.modelType === modelName && m.classificationId === classification._id
-                                        )}
-                                        onCheckedChange={() => {
-                                          if (model) {
-                                            handleModelToggle(model, classification._id);
-                                          }
-                                        }}
-                                        disabled={loading || !model}
-                                        className="h-5 w-5"
-                                      />
-                                      <label
-                                        htmlFor={`${classification._id}-${modelName}`}
-                                        className="font-medium cursor-pointer hover:text-primary transition-colors"
-                                      >
-                                        {modelName.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}{" "}
-                                        <span className="text-primary text-sm">(Recommended)</span>
-                                      </label>
-                                    </div>
-                                    {model && renderHyperparameters(model, classification._id)}
-                                  </div>
-                                );
-                              })}
+                      </CardHeader>
+                      {/* Rest of the classification content */}
+                      {expandedClassification === classification._id && (
+                        <CardContent className="pt-4">
+                          <div className="space-y-4">
+                            <div>
+                              <h4 className="font-semibold mb-2">Available Models</h4>
+                              {classification.models.length === 0 ? (
+                                <p className="text-muted-foreground">No models in this classification. Check the database.</p>
+                              ) : (
+                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-4">
+                                  {classification.models
+                                    .filter((model) =>
+                                      model.model_name.toLowerCase().includes(searchTerm.toLowerCase()) &&
+                                      (activeCategory === "all" || classification.classification_name.toLowerCase() === activeCategory)
+                                    )
+                                    .map((model) => {
+                                      const isSelected = selectedModels.some(
+                                        (m) => m.modelType === model.model_name && m.classificationId === classification._id
+                                      );
+                                      const modelKey = `${classification._id}-${model.model_id}`;
+                                      return (
+                                        <Card
+                                          key={model.model_id}
+                                          className={`border-border shadow-sm cursor-pointer ${
+                                            isSelected ? "bg-muted/50" : "hover:bg-muted/50"
+                                          } transition-colors`}
+                                          onClick={() => toggleHyperparameters(model.model_id, classification._id)}
+                                        >
+                                          <CardContent className="p-3 flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <Checkbox
+                                                id={`${classification._id}-${model.model_id}`}
+                                                checked={isSelected}
+                                                onCheckedChange={() => handleModelToggle(model, classification._id)}
+                                                disabled={loading}
+                                                className="h-4 w-4"
+                                                onClick={(e) => e.stopPropagation()} // Prevent card click from toggling checkbox
+                                              />
+                                              <label
+                                                htmlFor={`${classification._id}-${model.model_id}`}
+                                                className="text-sm font-medium cursor-pointer hover:text-primary transition-colors"
+                                              >
+                                                {formatModelName(model.model_name)}
+                                              </label>
+                                            </div>
+                                          </CardContent>
+                                          {renderHyperparameters(model, classification._id)}
+                                        </Card>
+                                      );
+                                    })}
+                                </div>
+                              )}
                             </div>
+                            {getRecommendedModels(classification.classification_name) && (
+                              <div>
+                                <h4 className="font-semibold mb-2">Recommended Models</h4>
+                                <div className="space-y-2">
+                                  {getRecommendedModels(classification.classification_name)!.map((modelName) => {
+                                    const model = classification.models.find((m) => m.model_name === modelName);
+                                    const isSelected = selectedModels.some(
+                                      (m) => m.modelType === modelName && m.classificationId === classification._id
+                                    );
+                                    const modelKey = `${classification._id}-${modelName}`;
+                                    return (
+                                      <div
+                                        key={modelName}
+                                        className={`p-2 border border-border rounded-md ${
+                                          isSelected ? "bg-muted/50" : "hover:bg-muted/50"
+                                        } transition-colors`}
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id={`${classification._id}-${modelName}`}
+                                              checked={isSelected}
+                                              onCheckedChange={() => {
+                                                if (model) {
+                                                  handleModelToggle(model, classification._id);
+                                                }
+                                              }}
+                                              disabled={loading || !model}
+                                              className="h-4 w-4"
+                                            />
+                                            <label
+                                              htmlFor={`${classification._id}-${modelName}`}
+                                              className="text-sm font-medium cursor-pointer hover:text-primary transition-colors"
+                                            >
+                                              {formatModelName(modelName)}{" "}
+                                              <span className="text-primary text-xs">(Recommended)</span>
+                                            </label>
+                                          </div>
+                                          {model && Object.keys(model.hyperparameters).length > 0 && (
+                                            <button
+                                              onClick={() => toggleHyperparameters(modelName, classification._id)}
+                                              className="text-muted-foreground hover:text-primary"
+                                            >
+                                              {expandedHyperparameters.includes(modelKey) ? (
+                                                <ChevronUp className="h-4 w-4" />
+                                              ) : (
+                                                <ChevronDown className="h-4 w-4" />
+                                              )}
+                                            </button>
+                                          )}
+                                        </div>
+                                        {model && renderHyperparameters(model, classification._id)}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            {recommendedModels === null && selectedDatasetId && (
+                              <p className="text-muted-foreground">No model recommendations available for this dataset.</p>
+                            )}
                           </div>
-                        )}
-                        {recommendedModels === null && selectedDatasetId && (
-                          <p className="text-muted-foreground">No model recommendations available for this dataset.</p>
-                        )}
-                      </div>
-                    </CardContent>
-                  )}
-                </Card>
-              ))
-            )}
-          </div>
-          {!loading && (
-            <Card className="mt-6">
-              <CardHeader className="flex justify-between items-center">
-                <CardTitle>Debug Information</CardTitle>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowDebug(!showDebug)}
-                  className="text-muted-foreground hover:bg-muted"
-                >
-                  <Code className="h-4 w-4 mr-1" />
-                  {showDebug ? "Hide Debug" : "Show Debug"}
-                </Button>
-              </CardHeader>
-              {showDebug && (
-                <CardContent className="space-y-4">
-                  <div>
-                    <h4 className="font-semibold mb-2">Classifications</h4>
-                    <pre className="text-sm text-muted-foreground bg-muted p-3 rounded-md overflow-auto">
-                      {JSON.stringify(classifications, null, 2)}
-                    </pre>
-                  </div>
-                  {recommendedModels && (
-                    <div>
-                      <h4 className="font-semibold mb-2">Recommended Models</h4>
-                      <pre className="text-sm text-muted-foreground bg-muted p-3 rounded-md overflow-auto">
-                        {JSON.stringify(recommendedModels, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                  {selectedModels.length > 0 && (
-                    <div>
-                      <h4 className="font-semibold mb-2">Selected Models</h4>
-                      <pre className="text-sm text-muted-foreground bg-muted p-3 rounded-md overflow-auto">
-                        {JSON.stringify(selectedModels, null, 2)}
-                      </pre>
-                    </div>
-                  )}
-                </CardContent>
-              )}
-            </Card>
+                        </CardContent>
+                      )}
+                    </Card>
+                  ))
+                )}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
 
+      {/* Schedule Training Card */}
       {selectedDatasetId && (
-        <Card className="mb-8">
-          <CardHeader>
-            <CardTitle>Schedule Training</CardTitle>
+        <Card>
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl">Schedule Training</CardTitle>
             <CardDescription>Start the training process for selected models</CardDescription>
           </CardHeader>
           <CardContent>
