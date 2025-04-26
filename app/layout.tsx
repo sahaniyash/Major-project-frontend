@@ -9,12 +9,16 @@ import { ThemeProvider } from "@/components/theme-provider"
 import { ClerkProvider, SignIn, SignOutButton, SignedIn, SignedOut, useAuth, useUser } from "@clerk/nextjs"
 import type React from "react"
 import { useEffect } from "react"
+import { usePathname } from "next/navigation"
+import { NotificationProvider } from "@/contexts/notification-context"
 
 const inter = Inter({ subsets: ["latin"] })
 
 function AuthWrapper({ children }: { children: React.ReactNode }) {
   const { userId, isLoaded } = useAuth();
   const { user } = useUser();
+  const pathname = usePathname();
+  const isLandingPage = pathname === "/";
 
   useEffect(() => {
     const createUserInDb = async () => {
@@ -57,27 +61,42 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  const pathname = usePathname();
+  const isLandingPage = pathname === "/";
+  const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
+  const isProtectedRoute = !isLandingPage && !isAuthPage;
+
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className={`${inter.className} flex h-screen bg-background text-foreground`}>
         <ClerkProvider>
-          <ThemeProvider>
-            <AuthWrapper>
-              <SignedIn>
-                <Sidebar />
-                <div className="flex flex-col flex-1 overflow-hidden">
-                  <Header />
-                  <main className="flex-1 overflow-y-auto p-6">{children}</main>
-                </div>
-                <Toaster />
-              </SignedIn>
-
-              <SignedOut>
-                <div className="flex items-center justify-center w-full h-screen">
-                  <SignIn routing="hash" />
-                </div>
-              </SignedOut>
-            </AuthWrapper>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="dark"
+            enableSystem={false}
+            disableTransitionOnChange
+          >
+            <NotificationProvider>
+              {isProtectedRoute ? (
+                <AuthWrapper>
+                  <SignedIn>
+                    <Sidebar />
+                    <div className="flex flex-col flex-1 overflow-hidden">
+                      <Header />
+                      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+                    </div>
+                  </SignedIn>
+                  <SignedOut>
+                    <div className="flex items-center justify-center w-full h-screen">
+                      <SignIn routing="hash" />
+                    </div>
+                  </SignedOut>
+                </AuthWrapper>
+              ) : (
+                <main className="w-full">{children}</main>
+              )}
+            </NotificationProvider>
+            <Toaster />
           </ThemeProvider>
         </ClerkProvider>
       </body>

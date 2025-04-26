@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Upload, Eye, Brain, Trash2 } from "lucide-react";
+import { Upload, Eye, Brain, Trash2, CheckCircle2, Clock, Circle } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import {
   Dialog,
@@ -20,6 +20,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useNotifications } from "@/contexts/notification-context";
 
 interface Dataset {
   _id: string;
@@ -55,11 +57,13 @@ export default function DataManagement() {
   const [userGoal, setUserGoal] = useState("");
   const [targetColumn, setTargetColumn] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const { addNotification } = useNotifications();
 
   const fetchUserDatasets = async () => {
     if (!user) return;
 
     try {
+      setIsLoading(true);
       const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
         credentials: "include",
       });
@@ -73,14 +77,21 @@ export default function DataManagement() {
         return;
       }
 
-      const datasetsPromises = datasetIds.map(async (id: string) => {
-        const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
-        if (!response.ok) return null;
-        return response.json();
-      });
+      // Batch fetch datasets
+      const batchSize = 5;
+      const batchedDatasets = [];
+      for (let i = 0; i < datasetIds.length; i += batchSize) {
+        const batch = datasetIds.slice(i, i + batchSize);
+        const batchPromises = batch.map(async (id: string) => {
+          const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
+          if (!response.ok) return null;
+          return response.json();
+        });
+        const results = await Promise.all(batchPromises);
+        batchedDatasets.push(...results.filter(data => data !== null));
+      }
 
-      const datasetsData = (await Promise.all(datasetsPromises)).filter((data) => data !== null);
-      setDatasets(datasetsData);
+      setDatasets(batchedDatasets);
     } catch (error) {
       console.error("Error fetching datasets:", error);
       toast({
@@ -96,8 +107,6 @@ export default function DataManagement() {
   useEffect(() => {
     if (user) {
       fetchUserDatasets();
-      const interval = setInterval(fetchUserDatasets, 30000); // Poll every 30 seconds
-      return () => clearInterval(interval);
     }
   }, [user]);
 
@@ -141,43 +150,56 @@ export default function DataManagement() {
     }
   };
 
-  // Corrected Delete dataset function
   const handleDeleteDataset = async (datasetId: string) => {
-    if (!user) {
+    if (!user || !mongoUserId) {
       toast({ title: "Error", description: "User not authenticated", variant: "destructive" });
+      addNotification("User not authenticated", "error");
       return;
     }
 
-    if (!confirm(`Are you sure you want to delete dataset ${datasetId}?`)) return;
+    if (!confirm(`Are you sure you want to delete this dataset?`)) return;
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:5000/dataset/delete_dataset?dataset_id=${datasetId}&userId=${mongoUserId}`,
+        `http://127.0.0.1:5000/dataset/delete_dataset?dataset_id=${datasetId}&user_id=${mongoUserId}`,
         {
           method: "DELETE",
           credentials: "include",
         }
       );
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to delete dataset");
+        // Handle specific error messages from the backend
+        const errorMessage = data.error || "Failed to delete dataset";
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        addNotification(errorMessage, "error");
+        return;
       }
 
-      const result = await response.json();
-      // Remove dataset from state
+      // Success case
       setDatasets((prev) => prev.filter((dataset) => dataset._id !== datasetId));
+      const successMessage = data.message || "Dataset deleted successfully";
       toast({
         title: "Success",
-        description: result.message || "Dataset deleted successfully",
+        description: successMessage,
       });
+      addNotification(successMessage, "success");
+      
     } catch (error) {
       console.error("Delete error:", error);
+      const errorMessage = error instanceof Error ? error.message : "Failed to delete dataset";
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete dataset",
+        description: errorMessage,
         variant: "destructive",
       });
+      addNotification(errorMessage, "error");
     }
   };
 
@@ -275,7 +297,7 @@ export default function DataManagement() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="container mx-auto p-6 space-y-8">
       <h1 className="text-3xl font-bold">Data Management</h1>
 
       <Card>
@@ -332,17 +354,25 @@ export default function DataManagement() {
                     <TableCell>{dataset.filename}</TableCell>
                     <TableCell className="w-96">{dataset.dataset_description || "No description"}</TableCell>
                     <TableCell>
-                      {dataset.is_preprocessing_done
-                        ? "✅ Complete"
-                        : dataset.start_preprocessing
-                        ? "⏳ In Progress"
-                        : "⚪ Not Started"}
+                      <div className="flex items-center gap-2">
+                        {dataset.is_preprocessing_done ? (
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        ) : dataset.start_preprocessing ? (
+                          <Clock className="h-4 w-4 text-yellow-500 animate-pulse" />
+                        ) : (
+                          <Circle className="h-4 w-4 text-gray-400" />
+                        )}
+                        <span className="text-sm">
+                          {dataset.is_preprocessing_done
+                            ? "Complete"
+                            : dataset.start_preprocessing
+                            ? "In Progress"
+                            : "Not Started"}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        <Button variant="ghost" size="icon">
-                          <Eye className="h-4 w-4" />
-                        </Button>
                         <Dialog
                           open={isDialogOpen && selectedDatasetId === dataset._id}
                           onOpenChange={(open) => {
