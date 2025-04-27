@@ -36,6 +36,15 @@ const hyperparamPlaceholders: Record<string, string> = {
   cache_size: "Enter a float",
   verbose: "Select true/false",
   default: "Enter a value",
+  n_estimators: "Enter a number",
+  max_depth: "Enter a number",
+  min_samples_split: "Enter a number",
+  min_samples_leaf: "Enter a number",
+  learning_rate: "Enter a float",
+  alpha: "Enter a float",
+  copy_X: "Select true/false",
+  n_jobs: "Enter a number or null",
+  positive: "Select true/false",
 };
 
 interface Dataset {
@@ -47,6 +56,7 @@ interface Dataset {
 interface ModelConfig {
   modelType: string;
   classificationId: string;
+  modelId: string; // Added to store model_id for API calls
   hyperparameters: Record<string, any>;
 }
 
@@ -82,6 +92,58 @@ export default function ModelSelection() {
     );
   };
 
+  // Fetch recommended hyperparameters for a model
+  const fetchRecommendedHyperparameters = async (modelId: string, modelName: string, classificationId: string) => {
+    if (!selectedDatasetId) {
+      toast({
+        title: "Error",
+        description: "Please select a dataset first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/model/get-model-hyperparameters?dataset_id=${selectedDatasetId}&model_id=${modelId}`,
+        {
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch recommended hyperparameters");
+      }
+
+      const data = await response.json();
+      if (data && typeof data === "object" && Object.keys(data).length > 0) {
+        setSelectedModels((prev) =>
+          prev.map((m) =>
+            m.modelType === modelName && m.classificationId === classificationId
+              ? { ...m, hyperparameters: data }
+              : m
+          )
+        );
+        toast({
+          title: "Success",
+          description: `Hyperparameters updated for ${formatModelName(modelName)}`,
+        });
+      } else {
+        console.error("Unexpected response format:", data);
+        throw new Error("No valid hyperparameters returned");
+      }
+    } catch (error) {
+      console.error("Error fetching hyperparameters:", error, "Response:", error);
+      toast({
+        title: "Error",
+        description:
+          error instanceof Error ? error.message : "Failed to fetch recommended hyperparameters",
+        variant: "destructive",
+      });
+    }
+  };
+
   // Render hyperparameters for a model
   const renderHyperparameters = (
     model: { model_id: string; model_name: string; hyperparameters: Record<string, any> },
@@ -103,160 +165,196 @@ export default function ModelSelection() {
                 This model has no configurable parameters
               </p>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {Object.entries(hyperparams).map(([param, type]) => {
-                  const selectedModel = selectedModels.find(
-                    (m) => m.modelType === model.model_name && m.classificationId === classificationId
-                  );
-                  const currentValue = selectedModel?.hyperparameters[param] ?? null;
-                  const placeholder = hyperparamPlaceholders[param] || hyperparamPlaceholders.default;
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    fetchRecommendedHyperparameters(model.model_id, model.model_name, classificationId)
+                  }
+                  disabled={loading || !isSelected || !selectedDatasetId}
+                  className="mb-4"
+                >
+                  Refetch Recommended Hyperparameters
+                </Button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {Object.entries(hyperparams).map(([param, type]) => {
+                    const selectedModel = selectedModels.find(
+                      (m) => m.modelType === model.model_name && m.classificationId === classificationId
+                    );
+                    const currentValue = selectedModel?.hyperparameters[param] ?? null;
+                    const placeholder = hyperparamPlaceholders[param] || hyperparamPlaceholders.default;
 
-                  // Handle boolean parameters
-                  if (type === "bool") {
-                    return (
-                      <div key={param} className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">{param}:</label>
-                        <Select
-                          value={currentValue?.toString() ?? ""}
-                          onValueChange={(value) =>
-                            updateHyperparameters(
-                              model.model_name,
-                              classificationId,
-                              param,
-                              value === "true" ? true : false
-                            )
-                          }
-                          disabled={loading || !isSelected}
-                        >
-                          <SelectTrigger className="w-[140px] text-xs">
-                            <SelectValue placeholder="Select" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="true">True</SelectItem>
-                            <SelectItem value="false">False</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    );
-                  }
-                  // Handle integer or nullable integer parameters
-                  else if (type === "int" || (Array.isArray(type) && type.includes("int") && type.includes("None"))) {
-                    return (
-                      <div key={param} className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">{param}:</label>
-                        <Input
-                          type="number"
-                          value={currentValue ?? ""}
-                          placeholder={placeholder}
-                          onChange={(e) =>
-                            updateHyperparameters(
-                              model.model_name,
-                              classificationId,
-                              param,
-                              e.target.value === "" ? null : parseInt(e.target.value)
-                            )
-                          }
-                          className="w-[140px] text-xs"
-                          disabled={loading || !isSelected}
-                          min={1}
-                        />
-                      </div>
-                    );
-                  }
-                  // Handle float parameters
-                  else if (type === "float") {
-                    return (
-                      <div key={param}>
-                        <label className="text-sm font-medium text-foreground block mb-2">{param}:</label>
-                        <Slider
-                          defaultValue={[currentValue ?? 0.1]}
-                          max={param === "epsilon" ? 1 : 10}
-                          step={param === "epsilon" ? 0.01 : 0.1}
-                          onValueChange={([val]) =>
-                            updateHyperparameters(model.model_name, classificationId, param, val)
-                          }
-                          disabled={loading || !isSelected}
-                        />
-                        <span className="text-sm text-muted-foreground mt-1">Current: {currentValue ?? 0.1}</span>
-                      </div>
-                    );
-                  }
-                  // Handle enum or mixed types (e.g., gamma: ["scale", "auto", "float"])
-                  else if (Array.isArray(type)) {
-                    const isMixedType = type.includes("float");
-                    const stringOptions = type.filter((t) => t !== "float");
-
-                    return (
-                      <div key={param} className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">{param}:</label>
-                        {isMixedType && typeof currentValue === "number" ? (
-                          <div className="flex flex-col gap-2">
-                            <Slider
-                              defaultValue={[currentValue ?? 0.1]}
-                              max={10}
-                              step={0.1}
-                              onValueChange={([val]) =>
-                                updateHyperparameters(model.model_name, classificationId, param, val)
-                              }
-                              disabled={loading || !isSelected}
-                            />
-                            <span className="text-sm text-muted-foreground">Current: {currentValue}</span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                updateHyperparameters(model.model_name, classificationId, param, stringOptions[0] || "scale")
-                              }
-                              disabled={loading || !isSelected}
-                            >
-                              Switch to preset
-                            </Button>
-                          </div>
-                        ) : (
+                    // Handle boolean parameters
+                    if (type === "bool") {
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-foreground">{param}:</label>
                           <Select
                             value={currentValue?.toString() ?? ""}
                             onValueChange={(value) =>
-                              updateHyperparameters(model.model_name, classificationId, param, value)
+                              updateHyperparameters(
+                                model.model_name,
+                                classificationId,
+                                param,
+                                value === "true" ? true : false
+                              )
                             }
                             disabled={loading || !isSelected}
                           >
                             <SelectTrigger className="w-[140px] text-xs">
-                              <SelectValue placeholder={placeholder} />
+                              <SelectValue placeholder="Select" />
                             </SelectTrigger>
                             <SelectContent>
-                              {stringOptions.map((option) => (
-                                <SelectItem key={option} value={option}>
-                                  {option}
-                                </SelectItem>
-                              ))}
-                              {isMixedType && (
-                                <SelectItem value="custom_float">Custom Float</SelectItem>
-                              )}
+                              <SelectItem value="true">True</SelectItem>
+                              <SelectItem value="false">False</SelectItem>
                             </SelectContent>
                           </Select>
-                        )}
-                      </div>
-                    );
-                  }
-                  // Handle string or other types
-                  else {
-                    return (
-                      <div key={param} className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">{param}:</label>
-                        <Input
-                          value={currentValue ?? ""}
-                          placeholder={placeholder}
-                          onChange={(e) =>
-                            updateHyperparameters(model.model_name, classificationId, param, e.target.value)
-                          }
-                          className="w-[140px] text-xs"
-                          disabled={loading || !isSelected}
-                        />
-                      </div>
-                    );
-                  }
-                })}
-              </div>
+                        </div>
+                      );
+                    }
+                    // Handle integer or nullable integer parameters
+                    else if (type === "int" || (Array.isArray(type) && type.includes("int") && type.includes("None"))) {
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-foreground">{param}:</label>
+                          <Input
+                            type="number"
+                            value={currentValue ?? ""}
+                            placeholder={placeholder}
+                            onChange={(e) =>
+                              updateHyperparameters(
+                                model.model_name,
+                                classificationId,
+                                param,
+                                e.target.value === "" ? null : parseInt(e.target.value)
+                              )
+                            }
+                            className="w-[140px] text-xs"
+                            disabled={loading || !isSelected}
+                            min={1}
+                          />
+                        </div>
+                      );
+                    }
+                    // Handle float parameters
+                    else if (type === "float") {
+                      return (
+                        <div key={param}>
+                          <label className="text-sm font-medium text-foreground block mb-2">{param}:</label>
+                          <Slider
+                            defaultValue={[currentValue ?? 0.1]}
+                            max={param === "epsilon" ? 1 : 10}
+                            step={param === "epsilon" ? 0.01 : 0.1}
+                            onValueChange={([val]) =>
+                              updateHyperparameters(model.model_name, classificationId, param, val)
+                            }
+                            disabled={loading || !isSelected}
+                          />
+                          <span className="text-sm text-muted-foreground mt-1">Current: {currentValue ?? 0.1}</span>
+                        </div>
+                      );
+                    }
+                    // Handle enum or mixed types (e.g., gamma: ["scale", "auto", "float"])
+                    else if (Array.isArray(type)) {
+                      const isMixedType = type.includes("float");
+                      const stringOptions = type.filter((t) => t !== "float");
+
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-foreground">{param}:</label>
+                          {isMixedType && typeof currentValue === "number" ? (
+                            <div className="flex flex-col gap-2">
+                              <Slider
+                                defaultValue={[currentValue ?? 0.1]}
+                                max={10}
+                                step={0.1}
+                                onValueChange={([val]) =>
+                                  updateHyperparameters(model.model_name, classificationId, param, val)
+                                }
+                                disabled={loading || !isSelected}
+                              />
+                              <span className="text-sm text-muted-foreground">Current: {currentValue}</span>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  updateHyperparameters(model.model_name, classificationId, param, stringOptions[0] || "scale")
+                                }
+                                disabled={loading || !isSelected}
+                              >
+                                Switch to preset
+                              </Button>
+                            </div>
+                          ) : (
+                            <Select
+                              value={currentValue?.toString() ?? ""}
+                              onValueChange={(value) =>
+                                updateHyperparameters(model.model_name, classificationId, param, value)
+                              }
+                              disabled={loading || !isSelected}
+                            >
+                              <SelectTrigger className="w-[140px] text-xs">
+                                <SelectValue placeholder={placeholder} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {stringOptions.map((option) => (
+                                  <SelectItem key={option} value={option}>
+                                    {option}
+                                  </SelectItem>
+                                ))}
+                                {isMixedType && (
+                                  <SelectItem value="custom_float">Custom Float</SelectItem>
+                                )}
+                              </SelectContent>
+                            </Select>
+                          )}
+                        </div>
+                      );
+                    }
+                    // Handle nullable parameters (e.g., n_jobs: int or null)
+                    else if (type === "int or null") {
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-foreground">{param}:</label>
+                          <Input
+                            type="number"
+                            value={currentValue ?? ""}
+                            placeholder={placeholder}
+                            onChange={(e) =>
+                              updateHyperparameters(
+                                model.model_name,
+                                classificationId,
+                                param,
+                                e.target.value === "" ? null : parseInt(e.target.value)
+                              )
+                            }
+                            className="w-[140px] text-xs"
+                            disabled={loading || !isSelected}
+                          />
+                        </div>
+                      );
+                    }
+                    // Handle string or other types
+                    else {
+                      return (
+                        <div key={param} className="flex items-center gap-2">
+                          <label className="text-sm font-medium text-foreground">{param}:</label>
+                          <Input
+                            value={currentValue ?? ""}
+                            placeholder={placeholder}
+                            onChange={(e) =>
+                              updateHyperparameters(model.model_name, classificationId, param, e.target.value)
+                            }
+                            className="w-[140px] text-xs"
+                            disabled={loading || !isSelected}
+                          />
+                        </div>
+                      );
+                    }
+                  })}
+                </div>
+              </>
             )}
           </div>
         )}
@@ -405,7 +503,7 @@ export default function ModelSelection() {
       } catch (error) {
         toast({
           title: "Error",
-          description: "Failed to fetch datasets or classifications",
+        description: "Failed to fetch datasets or classifications",
           variant: "destructive",
         });
       }
@@ -455,14 +553,27 @@ export default function ModelSelection() {
         else if (type === "int") acc[param] = 1;
         else if (type === "float") acc[param] = 0.1;
         else if (Array.isArray(type)) acc[param] = type.filter((t) => t !== "float")[0] || null;
+        else if (type === "int or null") acc[param] = null;
         else acc[param] = null;
         return acc;
       }, {} as Record<string, any>);
       
-      return [
+      const newModels = [
         ...prev,
-        { modelType: model.model_name, classificationId, hyperparameters: initialHyperparameters },
+        { 
+          modelType: model.model_name, 
+          classificationId, 
+          modelId: model.model_id, // Store model_id
+          hyperparameters: initialHyperparameters 
+        },
       ];
+
+      // Automatically fetch hyperparameters for the newly selected model
+      if (selectedDatasetId) {
+        fetchRecommendedHyperparameters(model.model_id, model.model_name, classificationId);
+      }
+
+      return newModels;
     });
   };
 
@@ -551,7 +662,7 @@ export default function ModelSelection() {
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
             <Select onValueChange={setSelectedDatasetId} value={selectedDatasetId} disabled={loading}>
-              <SelectTrigger className="w-full sm:w-[WA300px]">
+              <SelectTrigger className="w-full sm:w-[300px]">
                 <SelectValue placeholder="Select a dataset" />
               </SelectTrigger>
               <SelectContent>
