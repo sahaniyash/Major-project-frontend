@@ -80,7 +80,7 @@ const ChatPage = () => {
 
       const datasetsPromises = datasetIds.map(async (id: string) => {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}dataset/get_dataset?dataset_id=${id}`
+          `${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`
         );
         if (!response.ok) {
           console.error(`Failed to fetch dataset ${id}`);
