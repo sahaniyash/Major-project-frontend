@@ -17,6 +17,8 @@ import {
 } from "@clerk/nextjs";
 import type React from "react";
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { NotificationProvider } from "@/contexts/notification-context";
 
 const inter = Inter({ subsets: ["latin"] });
 

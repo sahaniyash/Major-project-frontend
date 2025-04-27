@@ -80,7 +80,7 @@ const ChatPage = () => {
 
       const datasetsPromises = datasetIds.map(async (id: string) => {
         const response = await fetch(
-          `http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`
+          `${process.env.NEXT_PUBLIC_API_URL}dataset/get_dataset?dataset_id=${id}`
         );
         if (!response.ok) {
           console.error(`Failed to fetch dataset ${id}`);
@@ -111,6 +111,18 @@ const ChatPage = () => {
     e.preventDefault();
     if (!input.trim()) return;
 
+    // Check if selectedDatasetId is set
+    if (!selectedDatasetId) {
+      const errorMessage = {
+        id: Date.now() + 1,
+        text: "Please select a dataset before sending a message.",
+        sender: "bot",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+      return;
+    }
+
     // Add user message to chat
     const userMessage = {
       id: Date.now(),
@@ -123,17 +135,8 @@ const ChatPage = () => {
     setIsLoading(true);
 
     try {
-      // Call Gemini API
-      //   const response = await fetch("/api/gemini", {
-      //     method: "POST",
-      //     headers: {
-      //       "Content-Type": "application/json",
-      //     },
-      //     body: JSON.stringify({ message: input }),
-      //   });
-
       const response = await fetch(
-        "http://127.0.0.1:5000/gemini/chat_with_dataset",
+        `http://127.0.0.1:5000/gemini/chat_with_dataset`,
         {
           method: "POST",
           headers: {
