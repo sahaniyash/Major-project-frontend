@@ -21,6 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
+import { renderHyperparameters } from "@/components/models/ModelsUtils";
 
 interface Classification {
   _id: string;
@@ -32,6 +33,11 @@ interface ModelCategories {
   [key: string]: {
     [key: string]: Record<string, any>;
   };
+}
+
+interface ModelConfig {
+  modelType: string;
+  hyperparameters: Record<string, any>;
 }
 
 export default function AdminPage() {
@@ -46,6 +52,8 @@ export default function AdminPage() {
   const [dropdownSelectedModels, setDropdownSelectedModels] = useState<{ category: string; name: string }[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editingModel, setEditingModel] = useState<{ classificationId: string; modelId: string } | null>(null);
+  const [modelConfigs, setModelConfigs] = useState<{ [key: string]: ModelConfig }>({});
 
   const modelCategories: ModelCategories = {
     classification: classificationModels,
@@ -55,7 +63,7 @@ export default function AdminPage() {
     neural: neuralModels,
   };
 
-  // Fetch existing classifications
+  // Fetch existing classifications and their models
   const fetchClassifications = async () => {
     setLoading(true);
     try {
@@ -68,25 +76,62 @@ export default function AdminPage() {
       }
       const data = await response.json();
       console.log("Fetched classifications:", data);
-      // Handle direct array response and map to Classification interface
-      const fetchedClassifications = Array.isArray(data)
-        ? data.map((classification: { _id: string; classification_name: string }) => ({
-            _id: classification._id,
-            classification_name: classification.classification_name,
-            models: [], // Initialize empty models array since /get_classifications doesn't provide models
-          }))
-        : [];
-      setClassifications(fetchedClassifications);
-      // Update newlyAddedClassification if it exists in the fetched data
+
+      // Fetch models for each classification
+      const classificationsWithModels = await Promise.all(
+        data.map(async (classification: { _id: string; classification_name: string }) => {
+          try {
+            const modelResponse = await fetch(
+              `http://127.0.0.1:5000/admin/get_models/${classification._id}`
+            );
+            if (!modelResponse.ok) {
+              throw new Error(`Failed to fetch models for classification ${classification._id}`);
+            }
+            const models = await modelResponse.json();
+            return {
+              _id: classification._id,
+              classification_name: classification.classification_name,
+              models: models.map((model: any) => ({
+                _id: model._id,
+                model_name: model.model_name,
+                hyperparameters: model.hyperparameters,
+              })),
+            };
+          } catch (error) {
+            console.error(`Error fetching models for ${classification._id}:`, error);
+            return {
+              _id: classification._id,
+              classification_name: classification.classification_name,
+              models: [],
+            };
+          }
+        })
+      );
+
+      setClassifications(classificationsWithModels);
+
+      // Update modelConfigs for editing
+      const configs: { [key: string]: ModelConfig } = {};
+      classificationsWithModels.forEach((classification) => {
+        classification.models.forEach((model) => {
+          configs[model._id] = {
+            modelType: model.model_name,
+            hyperparameters: model.hyperparameters,
+          };
+        });
+      });
+      setModelConfigs(configs);
+
       if (newlyAddedClassification) {
-        const updatedNewClassification = fetchedClassifications.find(
+        const updatedNewClassification = classificationsWithModels.find(
           (c: Classification) => c._id === newlyAddedClassification._id
         );
         if (updatedNewClassification) {
           setNewlyAddedClassification(updatedNewClassification);
         }
       }
-      if (fetchedClassifications.length === 0) {
+
+      if (classificationsWithModels.length === 0) {
         toast({
           title: "Info",
           description: "No classifications found in the database.",
@@ -113,6 +158,7 @@ export default function AdminPage() {
     const failedModels: string[] = [];
     for (const model of models) {
       try {
+        // Use the default hyperparameters from ModelUtils.tsx
         const modelConfig = modelCategories[model.category][model.name];
         console.log(`Adding model: ${model.name} to classification ${classificationId}`, modelConfig);
         const modelResponse = await fetch("http://127.0.0.1:5000/admin/add_model", {
@@ -146,7 +192,6 @@ export default function AdminPage() {
 
     setIsAdding(true);
     try {
-      // Add classification
       console.log("Adding classification:", classificationName);
       const response = await fetch("http://127.0.0.1:5000/admin/add_classification", {
         method: "POST",
@@ -161,7 +206,6 @@ export default function AdminPage() {
       const classificationId = data.classification_id;
       console.log("Classification added:", data);
 
-      // Add selected models
       if (selectedModels.length > 0) {
         const failedModels = await addModelsToClassification(classificationId, selectedModels);
         if (failedModels.length > 0) {
@@ -173,14 +217,13 @@ export default function AdminPage() {
         }
       }
 
-      // Set newly added classification directly
       const newClassification: Classification = {
         _id: classificationId,
         classification_name: classificationName,
         models: [],
       };
       setNewlyAddedClassification(newClassification);
-      await fetchClassifications(); // Update classifications in the background
+      await fetchClassifications();
       setClassificationName("");
       setSelectedModels([]);
       toast({ title: "Success", description: "Classification added successfully" });
@@ -304,12 +347,138 @@ export default function AdminPage() {
       }
 
       await fetchClassifications();
+      setModelConfigs((prev) => {
+        const newConfigs = { ...prev };
+        delete newConfigs[modelId];
+        return newConfigs;
+      });
       toast({ title: "Success", description: "Model deleted successfully" });
     } catch (error) {
       console.error("Delete model error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to delete model",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleHyperparameterChange = (modelType: string, param: string, value: any, modelId: string) => {
+    // Type conversions for SVR hyperparameters to ensure correct data types
+    let typedValue: any = value;
+    if (modelType === "svr") {
+      switch (param) {
+        case "degree":
+        case "cache_size":
+          typedValue = Number(value);
+          break;
+        case "coef0":
+        case "tol":
+        case "C":
+        case "epsilon":
+          typedValue = Number(value);
+          break;
+        case "shrinking":
+        case "verbose":
+        case "positive":
+          typedValue = Boolean(value);
+          break;
+        case "max_iter":
+          typedValue = value === "" ? -1 : Number(value);
+          break;
+        case "kernel":
+        case "gamma":
+          typedValue = String(value);
+          break;
+      }
+    }
+
+    setModelConfigs((prev) => ({
+      ...prev,
+      [modelId]: {
+        ...prev[modelId],
+        hyperparameters: {
+          ...prev[modelId].hyperparameters,
+          [param]: typedValue,
+        },
+      },
+    }));
+  };
+
+  const handleAddLayer = (modelType: string, modelId: string) => {
+    setModelConfigs((prev) => ({
+      ...prev,
+      [modelId]: {
+        ...prev[modelId],
+        hyperparameters: {
+          ...prev[modelId].hyperparameters,
+          layers: [
+            ...prev[modelId].hyperparameters.layers,
+            {
+              units: 64,
+              activation: "relu",
+              ...(modelType === "convolutional_neural_network" && {
+                filters: 32,
+                kernel_size: 3,
+                pool_size: 2,
+              }),
+              ...(modelType === "recurrent_neural_network" && {
+                return_sequences: false,
+              }),
+            },
+          ],
+        },
+      },
+    }));
+  };
+
+  const handleLayerChange = (
+    modelType: string,
+    index: number,
+    field: string,
+    value: number | string | boolean,
+    modelId: string
+  ) => {
+    setModelConfigs((prev) => {
+      const newLayers = [...prev[modelId].hyperparameters.layers];
+      newLayers[index] = { ...newLayers[index], [field]: value };
+      return {
+        ...prev,
+        [modelId]: {
+          ...prev[modelId],
+          hyperparameters: {
+            ...prev[modelId].hyperparameters,
+            layers: newLayers,
+          },
+        },
+      };
+    });
+  };
+
+  const handleSaveHyperparameters = async (classificationId: string, modelId: string) => {
+    try {
+      const modelConfig = modelConfigs[modelId];
+      const response = await fetch(`http://127.0.0.1:5000/admin/update_model/${modelId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classification_id: classificationId,
+          model_name: modelConfig.modelType,
+          hyperparameters: modelConfig.hyperparameters,
+        }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Failed to update model: ${errorText}`);
+      }
+      await fetchClassifications();
+      setEditingModel(null);
+      toast({ title: "Success", description: "Model hyperparameters updated successfully" });
+    } catch (error) {
+      console.error("Update model error:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to update model",
         variant: "destructive",
       });
     }
@@ -371,7 +540,8 @@ export default function AdminPage() {
                         disabled={isAdding || loading}
                       />
                       <label htmlFor={`${category}-${name}`} className="font-medium">
-                        {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ({category.replace(/_/g, " ")})
+                        {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
+                        {category.replace(/_/g, " ")})
                       </label>
                     </div>
                   ))
@@ -392,7 +562,9 @@ export default function AdminPage() {
               <Input
                 placeholder="Classification name"
                 value={editingClassification.name}
-                onChange={(e) => setEditingClassification({ ...editingClassification, name: e.target.value })}
+                onChange={(e) =>
+                  setEditingClassification({ ...editingClassification, name: e.target.value })
+                }
                 disabled={loading}
               />
               <Button onClick={handleUpdateClassification} disabled={loading}>
@@ -427,7 +599,10 @@ export default function AdminPage() {
           ) : (
             <>
               {newlyAddedClassification && (
-                <DropdownMenu open={dropdownOpen === newlyAddedClassification._id} onOpenChange={(open) => setDropdownOpen(open ? newlyAddedClassification._id : null)}>
+                <DropdownMenu
+                  open={dropdownOpen === newlyAddedClassification._id}
+                  onOpenChange={(open) => setDropdownOpen(open ? newlyAddedClassification._id : null)}
+                >
                   <DropdownMenuTrigger asChild>
                     <Card
                       className="cursor-pointer hover:shadow-md transition-shadow min-h-[100px]"
@@ -441,7 +616,10 @@ export default function AdminPage() {
                             size="icon"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setEditingClassification({ id: newlyAddedClassification._id, name: newlyAddedClassification.classification_name });
+                              setEditingClassification({
+                                id: newlyAddedClassification._id,
+                                name: newlyAddedClassification.classification_name,
+                              });
                             }}
                             disabled={loading}
                           >
@@ -465,23 +643,89 @@ export default function AdminPage() {
                         {newlyAddedClassification.models.length === 0 ? (
                           <p className="text-muted-foreground">No models assigned</p>
                         ) : (
-                          <ul className="list-disc pl-5">
+                          <ul className="list-disc pl-5 space-y-2">
                             {newlyAddedClassification.models.map((model) => (
-                              <li key={model._id} className="flex items-center justify-between">
-                                <span>
-                                  {model.model_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                                </span>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDeleteModel(model._id);
-                                  }}
-                                  disabled={loading}
-                                >
-                                  <Trash className="h-4 w-4" />
-                                </Button>
+                              <li key={model._id} className="flex flex-col">
+                                <div className="flex items-center justify-between">
+                                  <span>
+                                    {model.model_name
+                                      .replace(/_/g, " ")
+                                      .replace(/\b\w/g, (c) => c.toUpperCase())}
+                                  </span>
+                                  <div className="flex gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setEditingModel({
+                                          classificationId: newlyAddedClassification._id,
+                                          modelId: model._id,
+                                        });
+                                      }}
+                                      disabled={loading}
+                                    >
+                                      <Edit className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteModel(model._id);
+                                      }}
+                                      disabled={loading}
+                                    >
+                                      <Trash className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                </div>
+                                {editingModel?.modelId === model._id &&
+                                  editingModel.classificationId === newlyAddedClassification._id && (
+                                    <div className="mt-2 p-4 border rounded-lg">
+                                      {modelConfigs[model._id] ? (
+                                        <>
+                                          {renderHyperparameters(
+                                            modelConfigs[model._id],
+                                            (modelType, param, value) =>
+                                              handleHyperparameterChange(modelType, param, value, model._id),
+                                            () => handleAddLayer(model.model_name, model._id),
+                                            (modelType, index, field, value) =>
+                                              handleLayerChange(
+                                                modelType,
+                                                index,
+                                                field,
+                                                value,
+                                                model._id
+                                              ),
+                                            Object.keys(neuralModels).includes(model.model_name)
+                                          )}
+                                          <div className="flex gap-2 mt-4">
+                                            <Button
+                                              onClick={() =>
+                                                handleSaveHyperparameters(
+                                                  newlyAddedClassification._id,
+                                                  model._id
+                                                )
+                                              }
+                                              disabled={loading}
+                                            >
+                                              Save Hyperparameters
+                                            </Button>
+                                            <Button
+                                              variant="outline"
+                                              onClick={() => setEditingModel(null)}
+                                              disabled={loading}
+                                            >
+                                              Cancel
+                                            </Button>
+                                          </div>
+                                        </>
+                                      ) : (
+                                        <p>Loading hyperparameters...</p>
+                                      )}
+                                    </div>
+                                  )}
                               </li>
                             ))}
                           </ul>
@@ -499,12 +743,15 @@ export default function AdminPage() {
                             <div className="flex items-center gap-2">
                               <Checkbox
                                 id={`dropdown-${category}-${name}`}
-                                checked={dropdownSelectedModels.some((m) => m.category === category && m.name === name)}
+                                checked={dropdownSelectedModels.some(
+                                  (m) => m.category === category && m.name === name
+                                )}
                                 onCheckedChange={() => handleDropdownModelToggle(category, name)}
                                 disabled={loading}
                               />
                               <label htmlFor={`dropdown-${category}-${name}`} className="font-medium">
-                                {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ({category.replace(/_/g, " ")})
+                                {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
+                                {category.replace(/_/g, " ")})
                               </label>
                             </div>
                           </DropdownMenuItem>
@@ -527,7 +774,11 @@ export default function AdminPage() {
               {!newlyAddedClassification && (
                 <div className="space-y-4">
                   {classifications.map((classification) => (
-                    <DropdownMenu key={classification._id} open={dropdownOpen === classification._id} onOpenChange={(open) => setDropdownOpen(open ? classification._id : null)}>
+                    <DropdownMenu
+                      key={classification._id}
+                      open={dropdownOpen === classification._id}
+                      onOpenChange={(open) => setDropdownOpen(open ? classification._id : null)}
+                    >
                       <DropdownMenuTrigger asChild>
                         <Card
                           className="cursor-pointer hover:shadow-md transition-shadow min-h-[100px]"
@@ -541,7 +792,10 @@ export default function AdminPage() {
                                 size="icon"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditingClassification({ id: classification._id, name: classification.classification_name });
+                                  setEditingClassification({
+                                    id: classification._id,
+                                    name: classification.classification_name,
+                                  });
                                 }}
                                 disabled={loading}
                               >
@@ -565,23 +819,91 @@ export default function AdminPage() {
                             {classification.models.length === 0 ? (
                               <p className="text-muted-foreground">No models assigned</p>
                             ) : (
-                              <ul className="list-disc pl-5">
+                              <ul className="list-disc pl-5 space-y-2">
                                 {classification.models.map((model) => (
-                                  <li key={model._id} className="flex items-center justify-between">
-                                    <span>
-                                      {model.model_name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())}
-                                    </span>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleDeleteModel(model._id);
-                                      }}
-                                      disabled={loading}
-                                    >
-                                      <Trash className="h-4 w-4" />
-                                    </Button>
+                                  <li key={model._id} className="flex flex-col">
+                                    <div className="flex items-center justify-between">
+                                      <span>
+                                        {model.model_name
+                                          .replace(/_/g, " ")
+                                          .replace(/\b\w/g, (c) => c.toUpperCase())}
+                                      </span>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingModel({
+                                              classificationId: classification._id,
+                                              modelId: model._id,
+                                            });
+                                          }}
+                                          disabled={loading}
+                                        >
+                                          <Edit className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteModel(model._id);
+                                          }}
+                                          disabled={loading}
+                                        >
+                                          <Trash className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                    {editingModel?.modelId === model._id &&
+                                      editingModel.classificationId === classification._id && (
+                                        <div className="mt-2 p-4 border rounded-lg">
+                                          {modelConfigs[model._id] ? (
+                                            <>
+                                              {renderHyperparameters(
+                                                modelConfigs[model._id],
+                                                (modelType, param, value) =>
+                                                  handleHyperparameterChange(
+                                                    modelType,
+                                                    param,
+                                                    value,
+                                                    model._id
+                                                  ),
+                                                () => handleAddLayer(model.model_name, model._id),
+                                                (modelType, index, field, value) =>
+                                                  handleLayerChange(
+                                                    modelType,
+                                                    index,
+                                                    field,
+                                                    value,
+                                                    model._id
+                                                  ),
+                                                Object.keys(neuralModels).includes(model.model_name)
+                                              )}
+                                              <div className="flex gap-2 mt-4">
+                                                <Button
+                                                  onClick={() =>
+                                                    handleSaveHyperparameters(classification._id, model._id)
+                                                  }
+                                                  disabled={loading}
+                                                >
+                                                  Save Hyperparameters
+                                                </Button>
+                                                <Button
+                                                  variant="outline"
+                                                  onClick={() => setEditingModel(null)}
+                                                  disabled={loading}
+                                                >
+                                                  Cancel
+                                                </Button>
+                                              </div>
+                                            </>
+                                          ) : (
+                                            <p>Loading hyperparameters...</p>
+                                          )}
+                                        </div>
+                                      )}
                                   </li>
                                 ))}
                               </ul>
@@ -599,12 +921,18 @@ export default function AdminPage() {
                                 <div className="flex items-center gap-2">
                                   <Checkbox
                                     id={`dropdown-${category}-${name}`}
-                                    checked={dropdownSelectedModels.some((m) => m.category === category && m.name === name)}
+                                    checked={dropdownSelectedModels.some(
+                                      (m) => m.category === category && m.name === name
+                                    )}
                                     onCheckedChange={() => handleDropdownModelToggle(category, name)}
                                     disabled={loading}
                                   />
-                                  <label htmlFor={`dropdown-${category}-${name}`} className="font-medium">
-                                    {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} ({category.replace(/_/g, " ")})
+                                  <label
+                                    htmlFor={`dropdown-${category}-${name}`}
+                                    className="font-medium"
+                                  >
+                                    {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
+                                    {category.replace(/_/g, " ")})
                                   </label>
                                 </div>
                               </DropdownMenuItem>
@@ -628,9 +956,10 @@ export default function AdminPage() {
               )}
             </>
           )}
-          {/* Debug output */}
           <Card className="mt-4">
-            <CardHeader><CardTitle>Debug Classifications</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle>Debug Classifications</CardTitle>
+            </CardHeader>
             <CardContent>
               <pre>{JSON.stringify(newlyAddedClassification || classifications, null, 2)}</pre>
             </CardContent>

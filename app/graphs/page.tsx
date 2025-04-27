@@ -70,7 +70,7 @@ export default function Graphs() {
     const fetchDatasets = async () => {
       if (!user) return;
       try {
-        const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/get-user?userId=${user.id}`, {
           credentials: "include",
         });
         if (!response.ok) throw new Error("Failed to fetch user data");
@@ -79,7 +79,7 @@ export default function Graphs() {
         const datasetIds = userData.dataset_ids || [];
         
         const datasetsPromises = datasetIds.map((id: string) =>
-          fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`).then(res => res.json())
+          fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`).then(res => res.json())
         );
         const datasetsData = await Promise.all(datasetsPromises);
         setDatasets(datasetsData);
@@ -102,7 +102,7 @@ export default function Graphs() {
         return;
       }
       try {
-        const response = await fetch(`http://127.0.0.1:5000/dataset/get_column_names?dataset_id=${selectedDatasetId}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_column_names?dataset_id=${selectedDatasetId}`, {
           credentials: "include",
         });
         if (!response.ok) throw new Error(`Failed to fetch column names: ${await response.text()}`);
@@ -127,7 +127,7 @@ export default function Graphs() {
     }
 
     try {
-      const response = await fetch("http://127.0.0.1:5000/dataset/visualize", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/visualize`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 

@@ -54,7 +54,7 @@ export default function ModelComparison() {
 
     try {
       setIsLoading(true)
-      const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/get-user?userId=${user.id}`, {
         credentials: "include",
       })
       if (!response.ok) throw new Error(await response.text())
@@ -74,7 +74,7 @@ export default function ModelComparison() {
       for (let i = 0; i < datasetIds.length; i += batchSize) {
         const batch = datasetIds.slice(i, i + batchSize)
         const batchPromises = batch.map(async (id: string) => {
-          const res = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`)
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`)
           if (!res.ok) return null
           const data = await res.json()
           return { _id: data._id, filename: data.filename, datasetId: data._id }
@@ -112,7 +112,7 @@ export default function ModelComparison() {
   const fetchModelMetrics = async (datasetId: string) => {
     try {
       setIsLoading(true)
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:5000"
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL
       const url = `${apiUrl}/model/metrics?datasetId=${datasetId}`
       console.log(`Fetching model metrics from: ${url}`)
 

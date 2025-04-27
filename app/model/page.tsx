@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Search, Filter, ChevronDown, ChevronUp, Code } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Slider } from "@/components/ui/slider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,8 +26,15 @@ const hyperparamPlaceholders: Record<string, string> = {
   fit_intercept: "Select true/false",
   max_iter: "Enter a number",
   C: "Enter a float",
-  kernel: "Enter a string",
-  n_estimators: "Enter a number",
+  kernel: "Select a kernel",
+  degree: "Enter a number",
+  gamma: "Select or enter a value",
+  coef0: "Enter a float",
+  tol: "Enter a float",
+  epsilon: "Enter a float",
+  shrinking: "Select true/false",
+  cache_size: "Enter a float",
+  verbose: "Select true/false",
   default: "Enter a value",
 };
 
@@ -103,6 +111,7 @@ export default function ModelSelection() {
                   const currentValue = selectedModel?.hyperparameters[param] ?? null;
                   const placeholder = hyperparamPlaceholders[param] || hyperparamPlaceholders.default;
 
+                  // Handle boolean parameters
                   if (type === "bool") {
                     return (
                       <div key={param} className="flex items-center gap-2">
@@ -129,35 +138,9 @@ export default function ModelSelection() {
                         </Select>
                       </div>
                     );
-                  } else if (Array.isArray(type) && type.includes("int") && type.includes("None")) {
-                    return (
-                      <div key={param} className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-foreground">{param}:</label>
-                        <Select
-                          value={currentValue?.toString() ?? ""}
-                          onValueChange={(value) =>
-                            updateHyperparameters(
-                              model.model_name,
-                              classificationId,
-                              param,
-                              value === "None" ? null : parseInt(value)
-                            )
-                          }
-                          disabled={loading || !isSelected}
-                        >
-                          <SelectTrigger className="w-[140px] text-xs">
-                            <SelectValue placeholder="Select a value" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="None">None</SelectItem>
-                            <SelectItem value="1">1</SelectItem>
-                            <SelectItem value="2">2</SelectItem>
-                            <SelectItem value="4">4</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    );
-                  } else if (type === "int") {
+                  }
+                  // Handle integer or nullable integer parameters
+                  else if (type === "int" || (Array.isArray(type) && type.includes("int") && type.includes("None"))) {
                     return (
                       <div key={param} className="flex items-center gap-2">
                         <label className="text-sm font-medium text-foreground">{param}:</label>
@@ -170,15 +153,93 @@ export default function ModelSelection() {
                               model.model_name,
                               classificationId,
                               param,
-                              parseInt(e.target.value) || null
+                              e.target.value === "" ? null : parseInt(e.target.value)
                             )
                           }
                           className="w-[140px] text-xs"
                           disabled={loading || !isSelected}
+                          min={1}
                         />
                       </div>
                     );
-                  } else {
+                  }
+                  // Handle float parameters
+                  else if (type === "float") {
+                    return (
+                      <div key={param}>
+                        <label className="text-sm font-medium text-foreground block mb-2">{param}:</label>
+                        <Slider
+                          defaultValue={[currentValue ?? 0.1]}
+                          max={param === "epsilon" ? 1 : 10}
+                          step={param === "epsilon" ? 0.01 : 0.1}
+                          onValueChange={([val]) =>
+                            updateHyperparameters(model.model_name, classificationId, param, val)
+                          }
+                          disabled={loading || !isSelected}
+                        />
+                        <span className="text-sm text-muted-foreground mt-1">Current: {currentValue ?? 0.1}</span>
+                      </div>
+                    );
+                  }
+                  // Handle enum or mixed types (e.g., gamma: ["scale", "auto", "float"])
+                  else if (Array.isArray(type)) {
+                    const isMixedType = type.includes("float");
+                    const stringOptions = type.filter((t) => t !== "float");
+
+                    return (
+                      <div key={param} className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-foreground">{param}:</label>
+                        {isMixedType && typeof currentValue === "number" ? (
+                          <div className="flex flex-col gap-2">
+                            <Slider
+                              defaultValue={[currentValue ?? 0.1]}
+                              max={10}
+                              step={0.1}
+                              onValueChange={([val]) =>
+                                updateHyperparameters(model.model_name, classificationId, param, val)
+                              }
+                              disabled={loading || !isSelected}
+                            />
+                            <span className="text-sm text-muted-foreground">Current: {currentValue}</span>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                updateHyperparameters(model.model_name, classificationId, param, stringOptions[0] || "scale")
+                              }
+                              disabled={loading || !isSelected}
+                            >
+                              Switch to preset
+                            </Button>
+                          </div>
+                        ) : (
+                          <Select
+                            value={currentValue?.toString() ?? ""}
+                            onValueChange={(value) =>
+                              updateHyperparameters(model.model_name, classificationId, param, value)
+                            }
+                            disabled={loading || !isSelected}
+                          >
+                            <SelectTrigger className="w-[140px] text-xs">
+                              <SelectValue placeholder={placeholder} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {stringOptions.map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {option}
+                                </SelectItem>
+                              ))}
+                              {isMixedType && (
+                                <SelectItem value="custom_float">Custom Float</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    );
+                  }
+                  // Handle string or other types
+                  else {
                     return (
                       <div key={param} className="flex items-center gap-2">
                         <label className="text-sm font-medium text-foreground">{param}:</label>
@@ -217,7 +278,7 @@ export default function ModelSelection() {
       if (existingModel) {
         return prev.map((m) =>
           m.modelType === modelName && m.classificationId === classificationId
-            ? { ...m, hyperparameters: { ...m.hyperparameters, [param]: value } }
+            ? { ...m, hyperparameters: { ...m.hyperparameters, [param]: value === "custom_float" ? 0.1 : value } }
             : m
         );
       }
@@ -229,7 +290,7 @@ export default function ModelSelection() {
   const fetchClassifications = async () => {
     setLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/admin/get_all_models", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/get_all_models`, {
         headers: { "Cache-Control": "no-cache" },
       });
       if (!response.ok) {
@@ -322,7 +383,7 @@ export default function ModelSelection() {
       if (!user) return;
 
       try {
-        const userResponse = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
+        const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/get-user?userId=${user.id}`, {
           credentials: "include",
         });
         if (!userResponse.ok) throw new Error(await userResponse.text());
@@ -331,7 +392,7 @@ export default function ModelSelection() {
         const datasetIds = userData.dataset_ids || [];
 
         const datasetsPromises = datasetIds.map(async (id: string) => {
-          const res = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`);
           if (!res.ok) return null;
           const data = await res.json();
           return { _id: data._id, filename: data.filename, datasetId: data._id };
@@ -360,7 +421,7 @@ export default function ModelSelection() {
     }
 
     try {
-      const recommendResponse = await fetch(`http://127.0.0.1:5000/model/get-preferred-model?dataset_id=${selectedDatasetId}`);
+      const recommendResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/model/get-preferred-model?dataset_id=${selectedDatasetId}`);
       if (!recommendResponse.ok) {
         const errorData = await recommendResponse.json();
         throw new Error(errorData.error || "Failed to fetch recommended models");
@@ -392,6 +453,8 @@ export default function ModelSelection() {
         if (type === "bool") acc[param] = true;
         else if (Array.isArray(type) && type.includes("int") && type.includes("None")) acc[param] = null;
         else if (type === "int") acc[param] = 1;
+        else if (type === "float") acc[param] = 0.1;
+        else if (Array.isArray(type)) acc[param] = type.filter((t) => t !== "float")[0] || null;
         else acc[param] = null;
         return acc;
       }, {} as Record<string, any>);
@@ -431,7 +494,7 @@ export default function ModelSelection() {
           hyperparameters: m.hyperparameters,
         })),
       };
-      const response = await fetch("http://127.0.0.1:5000/model/start-building", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/model/start-building`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -488,7 +551,7 @@ export default function ModelSelection() {
         <CardContent>
           <div className="flex flex-col sm:flex-row gap-4">
             <Select onValueChange={setSelectedDatasetId} value={selectedDatasetId} disabled={loading}>
-              <SelectTrigger className="w-full sm:w-[300px]">
+              <SelectTrigger className="w-full sm:w-[WA300px]">
                 <SelectValue placeholder="Select a dataset" />
               </SelectTrigger>
               <SelectContent>
@@ -580,7 +643,6 @@ export default function ModelSelection() {
                           )}
                         </div>
                       </CardHeader>
-                      {/* Rest of the classification content */}
                       {expandedClassification === classification._id && (
                         <CardContent className="pt-4">
                           <div className="space-y-4">
@@ -616,7 +678,7 @@ export default function ModelSelection() {
                                                 onCheckedChange={() => handleModelToggle(model, classification._id)}
                                                 disabled={loading}
                                                 className="h-4 w-4"
-                                                onClick={(e) => e.stopPropagation()} // Prevent card click from toggling checkbox
+                                                onClick={(e) => e.stopPropagation()}
                                               />
                                               <label
                                                 htmlFor={`${classification._id}-${model.model_id}`}
