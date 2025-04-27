@@ -44,7 +44,7 @@ export default function Preprocess() {
 
       console.log("Fetching user data for Clerk ID:", user.id);
       try {
-        const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/get-user?userId=${user.id}`, {
           credentials: "include",
         });
         if (!response.ok) {
@@ -63,7 +63,7 @@ export default function Preprocess() {
         console.log("Extracted dataset IDs:", datasetIds);
 
         const datasetsPromises = datasetIds.map(async (id: string) => {
-          const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`);
           if (!response.ok) {
             console.error(`Failed to fetch dataset ${id}`);
             return null;

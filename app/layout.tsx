@@ -24,7 +24,7 @@ function AuthWrapper({ children }: { children: React.ReactNode }) {
     const createUserInDb = async () => {
       if (userId && user) {
         try {
-          const response = await fetch('http://127.0.0.1:5000/user/create-user', {
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/create-user`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

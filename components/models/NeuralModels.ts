@@ -1,50 +1,50 @@
 export const neuralModels = {
   multilayer_perceptron: {
-    layers: [],                  // Array of { units, activation } objects
-    learning_rate: 0.01,         // Initial learning rate for optimization
-    regularization: 0.1,         // L2 regularization strength (alpha)
-    optimizer: "adam",           // Optimization algorithm
-    batch_size: 32,              // Number of samples per gradient update
-    epochs: 100,                 // Number of training epochs
-    activation: "relu",          // Default activation for hidden layers (overridden by layers)
-    loss: "mse",                 // Loss function (mean squared error default)
-    dropout_rate: 0.0,           // Dropout rate (0.0 means no dropout)
-    momentum: 0.9,               // Momentum for optimizers like SGD
-    early_stopping: false,       // Whether to use early stopping
-    validation_split: 0.2,       // Fraction of data for validation
+    layers: { type: "array", default: [], description: "Array of { units: int, activation: str } objects" },
+    learning_rate: { type: "float", default: 0.01, min: 0 },
+    regularization: { type: "float", default: 0.1, min: 0 },
+    optimizer: { type: ["adam", "sgd", "rmsprop"], default: "adam" },
+    batch_size: { type: "int", default: 32, min: 1 },
+    epochs: { type: "int", default: 100, min: 1 },
+    activation: { type: ["relu", "tanh", "sigmoid"], default: "relu" },
+    loss: { type: ["mse", "mae", "binary_crossentropy", "categorical_crossentropy"], default: "mse" },
+    dropout_rate: { type: "float", default: 0.0, min: 0, max: 1.0 },
+    momentum: { type: "float", default: 0.9, min: 0, max: 1.0 },
+    early_stopping: { type: "bool", default: false },
+    validation_split: { type: "float", default: 0.2, min: 0, max: 1.0 },
   },
   convolutional_neural_network: {
-    layers: [],                  // Array of { units, activation, filters, kernel_size, pool_size } objects
-    learning_rate: 0.01,         // Initial learning rate
-    regularization: 0.1,         // L2 regularization strength
-    optimizer: "adam",           // Optimization algorithm
-    batch_size: 32,              // Number of samples per gradient update
-    epochs: 100,                 // Number of training epochs
-    loss: "mse",                 // Loss function
-    dropout_rate: 0.0,           // Dropout rate
-    momentum: 0.9,               // Momentum for optimizers
-    filters: 32,                 // Default number of filters in conv layers
-    kernel_size: 3,              // Default kernel size for conv layers
-    pool_size: 2,                // Default pooling size
-    padding: "valid",            // Padding type ("valid" or "same")
-    strides: 1,                  // Stride length for convolution
-    early_stopping: false,       // Whether to use early stopping
-    validation_split: 0.2,       // Fraction of data for validation
+    layers: { type: "array", default: [], description: "Array of { units: int, activation: str, filters: int, kernel_size: int, pool_size: int } objects" },
+    learning_rate: { type: "float", default: 0.01, min: 0 },
+    regularization: { type: "float", default: 0.1, min: 0 },
+    optimizer: { type: ["adam", "sgd", "rmsprop"], default: "adam" },
+    batch_size: { type: "int", default: 32, min: 1 },
+    epochs: { type: "int", default: 100, min: 1 },
+    loss: { type: ["mse", "mae", "binary_crossentropy", "categorical_crossentropy"], default: "mse" },
+    dropout_rate: { type: "float", default: 0.0, min: 0, max: 1.0 },
+    momentum: { type: "float", default: 0.9, min: 0, max: 1.0 },
+    filters: { type: "int", default: 32, min: 1 },
+    kernel_size: { type: "int", default: 3, min: 1 },
+    pool_size: { type: "int", default: 2, min: 1 },
+    padding: { type: ["valid", "same"], default: "valid" },
+    strides: { type: "int", default: 1, min: 1 },
+    early_stopping: { type: "bool", default: false },
+    validation_split: { type: "float", default: 0.2, min: 0, max: 1.0 },
   },
   recurrent_neural_network: {
-    layers: [],                  // Array of { units, activation, return_sequences } objects
-    learning_rate: 0.01,         // Initial learning rate
-    regularization: 0.1,         // L2 regularization strength
-    optimizer: "adam",           // Optimization algorithm
-    batch_size: 32,              // Number of samples per gradient update
-    epochs: 100,                 // Number of training epochs
-    loss: "mse",                 // Loss function
-    dropout_rate: 0.0,           // Dropout rate
-    momentum: 0.9,               // Momentum for optimizers
-    rnn_type: "lstm",            // Type of RNN cell ("lstm", "gru", "simple")
-    return_sequences: false,     // Whether to return sequences or last output
-    bidirectional: false,        // Whether to use bidirectional RNN
-    early_stopping: false,       // Whether to use early stopping
-    validation_split: 0.2,       // Fraction of data for validation
+    layers: { type: "array", default: [], description: "Array of { units: int, activation: str, return_sequences: bool } objects" },
+    learning_rate: { type: "float", default: 0.01, min: 0 },
+    regularization: { type: "float", default: 0.1, min: 0 },
+    optimizer: { type: ["adam", "sgd", "rmsprop"], default: "adam" },
+    batch_size: { type: "int", default: 32, min: 1 },
+    epochs: { type: "int", default: 100, min: 1 },
+    loss: { type: ["mse", "mae", "binary_crossentropy", "categorical_crossentropy"], default: "mse" },
+    dropout_rate: { type: "float", default: 0.0, min: 0, max: 1.0 },
+    momentum: { type: "float", default: 0.9, min: 0, max: 1.0 },
+    rnn_type: { type: ["lstm", "gru", "simple"], default: "lstm" },
+    return_sequences: { type: "bool", default: false },
+    bidirectional: { type: "bool", default: false },
+    early_stopping: { type: "bool", default: false },
+    validation_split: { type: "float", default: 0.2, min: 0, max: 1.0 },
   },
 };

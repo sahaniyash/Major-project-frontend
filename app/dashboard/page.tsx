@@ -65,7 +65,7 @@ export default function Dashboard() {
 
     try {
       setIsLoading(true);
-      const userResponse = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
+      const userResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/get-user?userId=${user.id}`, {
         credentials: "include",
       });
       if (!userResponse.ok) {
@@ -86,7 +86,7 @@ export default function Dashboard() {
       for (let i = 0; i < datasetIds.length; i += batchSize) {
         const batch = datasetIds.slice(i, i + batchSize);
         const batchPromises = batch.map(async (id: string) =>
-          fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`, {
+          fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`, {
             credentials: "include",
           }).then((res) => {
             if (!res.ok) return null;

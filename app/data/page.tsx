@@ -64,7 +64,7 @@ export default function DataManagement() {
 
     try {
       setIsLoading(true);
-      const response = await fetch(`http://127.0.0.1:5000/user/get-user?userId=${user.id}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/user/get-user?userId=${user.id}`, {
         credentials: "include",
       });
       if (!response.ok) throw new Error(`Failed to fetch user data: ${response.status}`);
@@ -83,7 +83,7 @@ export default function DataManagement() {
       for (let i = 0; i < datasetIds.length; i += batchSize) {
         const batch = datasetIds.slice(i, i + batchSize);
         const batchPromises = batch.map(async (id: string) => {
-          const response = await fetch(`http://127.0.0.1:5000/dataset/get_dataset?dataset_id=${id}`);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/get_dataset?dataset_id=${id}`);
           if (!response.ok) return null;
           return response.json();
         });
@@ -129,7 +129,7 @@ export default function DataManagement() {
     formData.append("dataset_description", description);
 
     try {
-      const response = await fetch("http://127.0.0.1:5000/dataset/add_dataset", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/add_dataset`, {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -161,7 +161,7 @@ export default function DataManagement() {
 
     try {
       const response = await fetch(
-        `http://127.0.0.1:5000/dataset/delete_dataset?dataset_id=${datasetId}&user_id=${mongoUserId}`,
+        `${process.env.NEXT_PUBLIC_API_URL}/dataset/delete_dataset?dataset_id=${datasetId}&user_id=${mongoUserId}`,
         {
           method: "DELETE",
           credentials: "include",
@@ -214,7 +214,7 @@ export default function DataManagement() {
     }
 
     try {
-      const response = await fetch("http://127.0.0.1:5000/gemini/recommend_preprocessing", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/gemini/recommend_preprocessing`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
@@ -262,7 +262,7 @@ export default function DataManagement() {
         },
       };
 
-      const response = await fetch(`http://127.0.0.1:5000/dataset/update_dataset`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/dataset/update_dataset`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
