@@ -26,34 +26,36 @@ import { renderHyperparameters } from "@/components/models/ModelsUtils";
 interface Classification {
   _id: string;
   classification_name: string;
-  models: { _id: string; model_name: string; hyperparameters: Record<string, any> }[];
+  models: { _id: string; model_name: string; hyperparameters: Record<string, any>; hyperparameter_values?: Record<string, any> }[];
 }
 
 interface ModelCategories {
   [key: string]: {
-    [key: string]: Record<string, any>;
+    [key: string]: Record<string, { type: string | string[]; default?: any; min?: number; max?: number; options?: string[] }>;
   };
 }
 
 interface ModelConfig {
   modelType: string;
-  hyperparameters: Record<string, any>;
+  hyperparameters: Record<string, string | string[]>;
+  hyperparameter_values: Record<string, any>;
 }
 
 export default function AdminPage() {
   const { user } = useUser();
   const { toast } = useToast();
   const [classificationName, setClassificationName] = useState("");
-  const [selectedModels, setSelectedModels] = useState<{ category: string; name: string }[]>([]);
+  const [selectedModels, setSelectedModels] = useState<{ category: string; name: string; config: ModelConfig }[]>([]);
   const [classifications, setClassifications] = useState<Classification[]>([]);
   const [newlyAddedClassification, setNewlyAddedClassification] = useState<Classification | null>(null);
   const [editingClassification, setEditingClassification] = useState<{ id: string; name: string } | null>(null);
   const [isAdding, setIsAdding] = useState(false);
-  const [dropdownSelectedModels, setDropdownSelectedModels] = useState<{ category: string; name: string }[]>([]);
+  const [dropdownSelectedModels, setDropdownSelectedModels] = useState<{ category: string; name: string; config: ModelConfig }[]>([]);
   const [dropdownOpen, setDropdownOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingModel, setEditingModel] = useState<{ classificationId: string; modelId: string } | null>(null);
   const [modelConfigs, setModelConfigs] = useState<{ [key: string]: ModelConfig }>({});
+  const [showHyperparameterConfig, setShowHyperparameterConfig] = useState<string | null>(null);
 
   const modelCategories: ModelCategories = {
     classification: classificationModels,
@@ -63,11 +65,27 @@ export default function AdminPage() {
     neural: neuralModels,
   };
 
+  // Initialize hyperparameters (types) and hyperparameter_values (values) for a model
+  const initializeHyperparameters = (category: string, modelName: string) => {
+    const hyperparametersDef = modelCategories[category][modelName];
+    const hyperparameters: Record<string, string | string[]> = {};
+    const hyperparameter_values: Record<string, any> = {};
+    Object.entries(hyperparametersDef).forEach(([param, config]) => {
+      // Set hyperparameter type
+      hyperparameters[param] = Array.isArray(config.type) ? config.type : config.type;
+      // Set hyperparameter value (default or null)
+      hyperparameter_values[param] = config.default !== undefined ? config.default : null;
+    });
+    console.log(`Initialized hyperparameters for ${category}/${modelName}:`, JSON.stringify(hyperparameters, null, 2));
+    console.log(`Initialized hyperparameter_values for ${category}/${modelName}:`, JSON.stringify(hyperparameter_values, null, 2));
+    return { hyperparameters, hyperparameter_values };
+  };
+
   // Fetch existing classifications and their models
   const fetchClassifications = async () => {
     setLoading(true);
     try {
-      const response = await fetch("http://127.0.0.1:5000/admin/get_classifications", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/get_classifications`, {
         headers: { "Cache-Control": "no-cache" },
       });
       if (!response.ok) {
@@ -75,14 +93,12 @@ export default function AdminPage() {
         throw new Error(`Failed to fetch classifications: ${errorText}`);
       }
       const data = await response.json();
-      console.log("Fetched classifications:", data);
 
-      // Fetch models for each classification
       const classificationsWithModels = await Promise.all(
         data.map(async (classification: { _id: string; classification_name: string }) => {
           try {
             const modelResponse = await fetch(
-              `http://127.0.0.1:5000/admin/get_models/${classification._id}`
+              `${process.env.NEXT_PUBLIC_API_URL}/admin/get_models/${classification._id}`
             );
             if (!modelResponse.ok) {
               throw new Error(`Failed to fetch models for classification ${classification._id}`);
@@ -95,10 +111,10 @@ export default function AdminPage() {
                 _id: model._id,
                 model_name: model.model_name,
                 hyperparameters: model.hyperparameters,
+                hyperparameter_values: model.hyperparameter_values || {}, // Fallback to empty object
               })),
             };
           } catch (error) {
-            console.error(`Error fetching models for ${classification._id}:`, error);
             return {
               _id: classification._id,
               classification_name: classification.classification_name,
@@ -110,13 +126,13 @@ export default function AdminPage() {
 
       setClassifications(classificationsWithModels);
 
-      // Update modelConfigs for editing
       const configs: { [key: string]: ModelConfig } = {};
       classificationsWithModels.forEach((classification) => {
         classification.models.forEach((model) => {
           configs[model._id] = {
             modelType: model.model_name,
             hyperparameters: model.hyperparameters,
+            hyperparameter_values: model.hyperparameter_values || {},
           };
         });
       });
@@ -138,7 +154,6 @@ export default function AdminPage() {
         });
       }
     } catch (error) {
-      console.error("Fetch classifications error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to fetch classifications",
@@ -154,28 +169,28 @@ export default function AdminPage() {
     if (user) fetchClassifications();
   }, [user]);
 
-  const addModelsToClassification = async (classificationId: string, models: { category: string; name: string }[]) => {
+  const addModelsToClassification = async (classificationId: string, models: { category: string; name: string; config: ModelConfig }[]) => {
     const failedModels: string[] = [];
     for (const model of models) {
       try {
-        // Use the default hyperparameters from ModelUtils.tsx
-        const modelConfig = modelCategories[model.category][model.name];
-        console.log(`Adding model: ${model.name} to classification ${classificationId}`, modelConfig);
-        const modelResponse = await fetch("http://127.0.0.1:5000/admin/add_model", {
+        const payload = {
+          classification_id: classificationId,
+          model_name: model.name,
+          hyperparameters: model.config.hyperparameters,
+          hyperparameter_values: model.config.hyperparameter_values,
+        };
+        console.log(`Sending to /admin/add_model for ${model.name}:`, JSON.stringify(payload, null, 2));
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/add_model`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            classification_id: classificationId,
-            model_name: model.name,
-            hyperparameters: modelConfig,
-          }),
+          body: JSON.stringify(payload),
         });
-        if (!modelResponse.ok) {
-          const errorText = await modelResponse.text();
+        if (!response.ok) {
+          const errorText = await response.text();
           throw new Error(`Failed to add model ${model.name}: ${errorText}`);
         }
-        const modelData = await modelResponse.json();
-        console.log(`Model ${model.name} added:`, modelData);
+        const responseData = await response.json();
+        console.log(`Response from /admin/add_model for ${model.name}:`, JSON.stringify(responseData, null, 2));
       } catch (error) {
         console.error(`Error adding model ${model.name}:`, error);
         failedModels.push(model.name);
@@ -192,8 +207,7 @@ export default function AdminPage() {
 
     setIsAdding(true);
     try {
-      console.log("Adding classification:", classificationName);
-      const response = await fetch("http://127.0.0.1:5000/admin/add_classification", {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/add_classification`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ classification_name: classificationName }),
@@ -204,7 +218,6 @@ export default function AdminPage() {
       }
       const data = await response.json();
       const classificationId = data.classification_id;
-      console.log("Classification added:", data);
 
       if (selectedModels.length > 0) {
         const failedModels = await addModelsToClassification(classificationId, selectedModels);
@@ -226,9 +239,9 @@ export default function AdminPage() {
       await fetchClassifications();
       setClassificationName("");
       setSelectedModels([]);
+      setShowHyperparameterConfig(null);
       toast({ title: "Success", description: "Classification added successfully" });
     } catch (error) {
-      console.error("Add classification error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to add classification",
@@ -260,8 +273,8 @@ export default function AdminPage() {
       await fetchClassifications();
       setDropdownSelectedModels([]);
       setDropdownOpen(null);
+      setShowHyperparameterConfig(null);
     } catch (error) {
-      console.error("Add models from dropdown error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to add models",
@@ -279,8 +292,7 @@ export default function AdminPage() {
     }
 
     try {
-      console.log("Updating classification:", editingClassification);
-      const response = await fetch(`http://127.0.0.1:5000/admin/update_classification/${editingClassification.id}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/update_classification/${editingClassification.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ classification_name: editingClassification.name }),
@@ -300,7 +312,6 @@ export default function AdminPage() {
       setEditingClassification(null);
       toast({ title: "Success", description: "Classification updated successfully" });
     } catch (error) {
-      console.error("Update classification error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update classification",
@@ -311,8 +322,7 @@ export default function AdminPage() {
 
   const handleDeleteClassification = async (classificationId: string) => {
     try {
-      console.log("Deleting classification:", classificationId);
-      const response = await fetch(`http://127.0.0.1:5000/admin/delete_classification/${classificationId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/delete_classification/${classificationId}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -326,7 +336,6 @@ export default function AdminPage() {
       }
       toast({ title: "Success", description: "Classification deleted successfully" });
     } catch (error) {
-      console.error("Delete classification error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to delete classification",
@@ -337,8 +346,7 @@ export default function AdminPage() {
 
   const handleDeleteModel = async (modelId: string) => {
     try {
-      console.log("Deleting model:", modelId);
-      const response = await fetch(`http://127.0.0.1:5000/admin/delete_model/${modelId}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/delete_model/${modelId}`, {
         method: "DELETE",
       });
       if (!response.ok) {
@@ -354,7 +362,6 @@ export default function AdminPage() {
       });
       toast({ title: "Success", description: "Model deleted successfully" });
     } catch (error) {
-      console.error("Delete model error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to delete model",
@@ -364,72 +371,51 @@ export default function AdminPage() {
   };
 
   const handleHyperparameterChange = (modelType: string, param: string, value: any, modelId: string) => {
-    // Type conversions for SVR hyperparameters to ensure correct data types
-    let typedValue: any = value;
-    if (modelType === "svr") {
-      switch (param) {
-        case "degree":
-        case "cache_size":
-          typedValue = Number(value);
-          break;
-        case "coef0":
-        case "tol":
-        case "C":
-        case "epsilon":
-          typedValue = Number(value);
-          break;
-        case "shrinking":
-        case "verbose":
-        case "positive":
-          typedValue = Boolean(value);
-          break;
-        case "max_iter":
-          typedValue = value === "" ? -1 : Number(value);
-          break;
-        case "kernel":
-        case "gamma":
-          typedValue = String(value);
-          break;
-      }
-    }
-
-    setModelConfigs((prev) => ({
-      ...prev,
-      [modelId]: {
-        ...prev[modelId],
-        hyperparameters: {
-          ...prev[modelId].hyperparameters,
-          [param]: typedValue,
+    setModelConfigs((prev) => {
+      const updated = {
+        ...prev,
+        [modelId]: {
+          ...prev[modelId],
+          hyperparameter_values: {
+            ...prev[modelId].hyperparameter_values,
+            [param]: value,
+          },
         },
-      },
-    }));
+      };
+      console.log(`Updated modelConfigs[${modelId}] hyperparameter_values:`, JSON.stringify(updated[modelId].hyperparameter_values, null, 2));
+      return updated;
+    });
   };
 
   const handleAddLayer = (modelType: string, modelId: string) => {
-    setModelConfigs((prev) => ({
-      ...prev,
-      [modelId]: {
-        ...prev[modelId],
-        hyperparameters: {
-          ...prev[modelId].hyperparameters,
-          layers: [
-            ...prev[modelId].hyperparameters.layers,
-            {
-              units: 64,
-              activation: "relu",
-              ...(modelType === "convolutional_neural_network" && {
-                filters: 32,
-                kernel_size: 3,
-                pool_size: 2,
-              }),
-              ...(modelType === "recurrent_neural_network" && {
-                return_sequences: false,
-              }),
-            },
-          ],
+    setModelConfigs((prev) => {
+      const updated = {
+        ...prev,
+        [modelId]: {
+          ...prev[modelId],
+          hyperparameter_values: {
+            ...prev[modelId].hyperparameter_values,
+            layers: [
+              ...(prev[modelId].hyperparameter_values.layers || []),
+              {
+                units: 64,
+                activation: "relu",
+                ...(modelType === "convolutional_neural_network" && {
+                  filters: 32,
+                  kernel_size: 3,
+                  pool_size: 2,
+                }),
+                ...(modelType === "recurrent_neural_network" && {
+                  return_sequences: false,
+                }),
+              },
+            ],
+          },
         },
-      },
-    }));
+      };
+      console.log(`Added layer to modelConfigs[${modelId}]:`, JSON.stringify(updated[modelId].hyperparameter_values.layers, null, 2));
+      return updated;
+    });
   };
 
   const handleLayerChange = (
@@ -440,31 +426,35 @@ export default function AdminPage() {
     modelId: string
   ) => {
     setModelConfigs((prev) => {
-      const newLayers = [...prev[modelId].hyperparameters.layers];
+      const newLayers = [...(prev[modelId].hyperparameter_values.layers || [])];
       newLayers[index] = { ...newLayers[index], [field]: value };
-      return {
+      const updated = {
         ...prev,
         [modelId]: {
           ...prev[modelId],
-          hyperparameters: {
-            ...prev[modelId].hyperparameters,
+          hyperparameter_values: {
+            ...prev[modelId].hyperparameter_values,
             layers: newLayers,
           },
         },
       };
+      console.log(`Updated layer ${index} in modelConfigs[${modelId}]:`, JSON.stringify(updated[modelId].hyperparameter_values.layers, null, 2));
+      return updated;
     });
   };
 
   const handleSaveHyperparameters = async (classificationId: string, modelId: string) => {
     try {
       const modelConfig = modelConfigs[modelId];
-      const response = await fetch(`http://127.0.0.1:5000/admin/update_model/${modelId}`, {
+      console.log(`Saving hyperparameter_values for model ${modelId}:`, JSON.stringify(modelConfig.hyperparameter_values, null, 2));
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/update_model/${modelId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           classification_id: classificationId,
           model_name: modelConfig.modelType,
           hyperparameters: modelConfig.hyperparameters,
+          hyperparameter_values: modelConfig.hyperparameter_values,
         }),
       });
       if (!response.ok) {
@@ -475,7 +465,6 @@ export default function AdminPage() {
       setEditingModel(null);
       toast({ title: "Success", description: "Model hyperparameters updated successfully" });
     } catch (error) {
-      console.error("Update model error:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to update model",
@@ -488,9 +477,15 @@ export default function AdminPage() {
     setSelectedModels((prev) => {
       const modelKey = `${category}-${name}`;
       if (prev.some((m) => `${m.category}-${m.name}` === modelKey)) {
-        return prev.filter((m) => `${m.category}-${m.name}` !== modelKey);
+        const newModels = prev.filter((m) => `${m.category}-${m.name}` !== modelKey);
+        console.log(`Removed model ${modelKey}, new state:`, JSON.stringify(newModels, null, 2));
+        return newModels;
       }
-      return [...prev, { category, name }];
+      const { hyperparameters, hyperparameter_values } = initializeHyperparameters(category, name);
+      const newModel = { category, name, config: { modelType: name, hyperparameters, hyperparameter_values } };
+      const newModels = [...prev, newModel];
+      console.log(`Added model ${modelKey}, new state:`, JSON.stringify(newModels, null, 2));
+      return newModels;
     });
   };
 
@@ -498,9 +493,99 @@ export default function AdminPage() {
     setDropdownSelectedModels((prev) => {
       const modelKey = `${category}-${name}`;
       if (prev.some((m) => `${m.category}-${m.name}` === modelKey)) {
-        return prev.filter((m) => `${m.category}-${m.name}` !== modelKey);
+        const newModels = prev.filter((m) => `${m.category}-${m.name}` !== modelKey);
+        console.log(`Removed dropdown model ${modelKey}, new state:`, JSON.stringify(newModels, null, 2));
+        return newModels;
       }
-      return [...prev, { category, name }];
+      const { hyperparameters, hyperparameter_values } = initializeHyperparameters(category, name);
+      const newModel = { category, name, config: { modelType: name, hyperparameters, hyperparameter_values } };
+      const newModels = [...prev, newModel];
+      console.log(`Added dropdown model ${modelKey}, new state:`, JSON.stringify(newModels, null, 2));
+      return newModels;
+    });
+  };
+
+  const handleHyperparameterConfigChange = (
+    category: string,
+    modelName: string,
+    param: string,
+    value: any,
+    isDropdown: boolean
+  ) => {
+    const targetModels = isDropdown ? dropdownSelectedModels : selectedModels;
+    const setTargetModels = isDropdown ? setDropdownSelectedModels : setSelectedModels;
+    const paramConfig = modelCategories[category][modelName][param];
+
+    // Validate and parse the value
+    let parsedValue = value;
+    if (paramConfig.type === "int") {
+      parsedValue = parseInt(value, 10);
+      if (isNaN(parsedValue) || (paramConfig.min && parsedValue < paramConfig.min) || (paramConfig.max && parsedValue > paramConfig.max)) {
+        toast({
+          title: "Invalid Input",
+          description: `${param} must be an integer between ${paramConfig.min || 0} and ${paramConfig.max || "∞"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (paramConfig.type === "float") {
+      parsedValue = parseFloat(value);
+      if (isNaN(parsedValue) || (paramConfig.min && parsedValue < paramConfig.min) || (paramConfig.max && parsedValue > paramConfig.max)) {
+        toast({
+          title: "Invalid Input",
+          description: `${param} must be a number between ${paramConfig.min || 0} and ${paramConfig.max || "∞"}`,
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (paramConfig.type === "bool") {
+      parsedValue = value === "true" || value === true;
+    } else if (Array.isArray(paramConfig.type)) {
+      const validOptions = paramConfig.options || paramConfig.type;
+      if (value === "null") {
+        parsedValue = null;
+      } else if (!validOptions.includes(value)) {
+        // Handle mixed types (e.g., random_state: ["int", "None"])
+        if (paramConfig.type.includes("int") && !isNaN(parseInt(value, 10))) {
+          parsedValue = parseInt(value, 10);
+        } else {
+          toast({
+            title: "Invalid Input",
+            description: `${param} must be one of ${validOptions.join(", ")}`,
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+    } else if (paramConfig.type === "str" && typeof value !== "string") {
+      toast({
+        title: "Invalid Input",
+        description: `${param} must be a string`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setTargetModels((prev) => {
+      const updatedModels = prev.map((m) => {
+        if (m.category === category && m.name === modelName) {
+          const newHyperparameterValues = { ...m.config.hyperparameter_values, [param]: parsedValue };
+          console.log(
+            `Updated hyperparameter_values for ${category}/${modelName} (${isDropdown ? "dropdown" : "main"}):`,
+            JSON.stringify(newHyperparameterValues, null, 2)
+          );
+          return {
+            ...m,
+            config: {
+              ...m.config,
+              hyperparameter_values: newHyperparameterValues,
+            },
+          };
+        }
+        return m;
+      });
+      console.log(`New ${isDropdown ? "dropdownSelectedModels" : "selectedModels"} state:`, JSON.stringify(updatedModels, null, 2));
+      return updatedModels;
     });
   };
 
@@ -532,17 +617,43 @@ export default function AdminPage() {
               <div className="grid gap-2">
                 {Object.entries(modelCategories).flatMap(([category, models]) =>
                   Object.keys(models).map((name) => (
-                    <div key={`${category}-${name}`} className="flex items-center gap-3">
-                      <Checkbox
-                        id={`${category}-${name}`}
-                        checked={selectedModels.some((m) => m.category === category && m.name === name)}
-                        onCheckedChange={() => handleModelToggle(category, name)}
-                        disabled={isAdding || loading}
-                      />
-                      <label htmlFor={`${category}-${name}`} className="font-medium">
-                        {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
-                        {category.replace(/_/g, " ")})
-                      </label>
+                    <div key={`${category}-${name}`} className="flex flex-col gap-2">
+                      <div className="flex items-center gap-3">
+                        <Checkbox
+                          id={`${category}-${name}`}
+                          checked={selectedModels.some((m) => m.category === category && m.name === name)}
+                          onCheckedChange={() => handleModelToggle(category, name)}
+                          disabled={isAdding || loading}
+                        />
+                        <label htmlFor={`${category}-${name}`} className="font-medium">
+                          {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
+                          {category.replace(/_/g, " ")})
+                        </label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowHyperparameterConfig(showHyperparameterConfig === `${category}-${name}` ? null : `${category}-${name}`)}
+                          disabled={isAdding || loading || !selectedModels.some((m) => m.category === category && m.name === name)}
+                        >
+                          {showHyperparameterConfig === `${category}-${name}` ? "Hide" : "Configure"} Hyperparameters
+                        </Button>
+                      </div>
+                      {showHyperparameterConfig === `${category}-${name}` && (
+                        <div className="ml-6 p-4 border rounded-lg">
+                          {(() => {
+                            const model = selectedModels.find((m) => m.category === category && m.name === name);
+                            if (!model) return <p>Model not found</p>;
+                            return renderHyperparameters(
+                              { ...model.config, hyperparameters: model.config.hyperparameter_values }, // Pass values to UI
+                              (modelType, param, value) => handleHyperparameterConfigChange(category, name, param, value, false),
+                              () => handleAddLayer(name, `${category}-${name}`),
+                              (modelType, index, field, value) => handleLayerChange(modelType, index, field, value, `${category}-${name}`),
+                              Object.keys(neuralModels).includes(name),
+                              modelCategories[category][name]
+                            );
+                          })()}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -686,7 +797,7 @@ export default function AdminPage() {
                                       {modelConfigs[model._id] ? (
                                         <>
                                           {renderHyperparameters(
-                                            modelConfigs[model._id],
+                                            { ...modelConfigs[model._id], hyperparameters: modelConfigs[model._id].hyperparameter_values }, // Pass values to UI
                                             (modelType, param, value) =>
                                               handleHyperparameterChange(modelType, param, value, model._id),
                                             () => handleAddLayer(model.model_name, model._id),
@@ -698,7 +809,8 @@ export default function AdminPage() {
                                                 value,
                                                 model._id
                                               ),
-                                            Object.keys(neuralModels).includes(model.model_name)
+                                            Object.keys(neuralModels).includes(model.model_name),
+                                            modelCategories[model.model_name.split("_")[0]][model.model_name]
                                           )}
                                           <div className="flex gap-2 mt-4">
                                             <Button
@@ -739,7 +851,7 @@ export default function AdminPage() {
                     <div className="max-h-64 overflow-y-auto p-2">
                       {Object.entries(modelCategories).flatMap(([category, models]) =>
                         Object.keys(models).map((name) => (
-                          <DropdownMenuItem key={`${category}-${name}`} asChild>
+                          <div key={`${category}-${name}`} className="flex flex-col gap-2">
                             <div className="flex items-center gap-2">
                               <Checkbox
                                 id={`dropdown-${category}-${name}`}
@@ -749,12 +861,39 @@ export default function AdminPage() {
                                 onCheckedChange={() => handleDropdownModelToggle(category, name)}
                                 disabled={loading}
                               />
-                              <label htmlFor={`dropdown-${category}-${name}`} className="font-medium">
+                              <label
+                                htmlFor={`dropdown-${category}-${name}`}
+                                className="font-medium"
+                              >
                                 {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
                                 {category.replace(/_/g, " ")})
                               </label>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setShowHyperparameterConfig(showHyperparameterConfig === `${category}-${name}-dropdown` ? null : `${category}-${name}-dropdown`)}
+                                disabled={isAdding || loading || !dropdownSelectedModels.some((m) => m.category === category && m.name === name)}
+                              >
+                                {showHyperparameterConfig === `${category}-${name}-dropdown` ? "Hide" : "Configure"} Hyperparameters
+                              </Button>
                             </div>
-                          </DropdownMenuItem>
+                            {showHyperparameterConfig === `${category}-${name}-dropdown` && (
+                              <div className="ml-6 p-4 border rounded-lg">
+                                {(() => {
+                                  const model = dropdownSelectedModels.find((m) => m.category === category && m.name === name);
+                                  if (!model) return <p>Model not found</p>;
+                                  return renderHyperparameters(
+                                    { ...model.config, hyperparameters: model.config.hyperparameter_values }, // Pass values to UI
+                                    (modelType, param, value) => handleHyperparameterConfigChange(category, name, param, value, true),
+                                    () => handleAddLayer(name, `${category}-${name}`),
+                                    (modelType, index, field, value) => handleLayerChange(modelType, index, field, value, `${category}-${name}`),
+                                    Object.keys(neuralModels).includes(name),
+                                    modelCategories[category][name]
+                                  );
+                                })()}
+                              </div>
+                            )}
+                          </div>
                         ))
                       )}
                     </div>
@@ -862,14 +1001,9 @@ export default function AdminPage() {
                                           {modelConfigs[model._id] ? (
                                             <>
                                               {renderHyperparameters(
-                                                modelConfigs[model._id],
+                                                { ...modelConfigs[model._id], hyperparameters: modelConfigs[model._id].hyperparameter_values }, // Pass values to UI
                                                 (modelType, param, value) =>
-                                                  handleHyperparameterChange(
-                                                    modelType,
-                                                    param,
-                                                    value,
-                                                    model._id
-                                                  ),
+                                                  handleHyperparameterChange(modelType, param, value, model._id),
                                                 () => handleAddLayer(model.model_name, model._id),
                                                 (modelType, index, field, value) =>
                                                   handleLayerChange(
@@ -879,7 +1013,8 @@ export default function AdminPage() {
                                                     value,
                                                     model._id
                                                   ),
-                                                Object.keys(neuralModels).includes(model.model_name)
+                                                Object.keys(neuralModels).includes(model.model_name),
+                                                modelCategories[model.model_name.split("_")[0]][model.model_name]
                                               )}
                                               <div className="flex gap-2 mt-4">
                                                 <Button
@@ -917,7 +1052,7 @@ export default function AdminPage() {
                         <div className="max-h-64 overflow-y-auto p-2">
                           {Object.entries(modelCategories).flatMap(([category, models]) =>
                             Object.keys(models).map((name) => (
-                              <DropdownMenuItem key={`${category}-${name}`} asChild>
+                              <div key={`${category}-${name}`} className="flex flex-col gap-2">
                                 <div className="flex items-center gap-2">
                                   <Checkbox
                                     id={`dropdown-${category}-${name}`}
@@ -934,8 +1069,32 @@ export default function AdminPage() {
                                     {name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())} (
                                     {category.replace(/_/g, " ")})
                                   </label>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setShowHyperparameterConfig(showHyperparameterConfig === `${category}-${name}-dropdown` ? null : `${category}-${name}-dropdown`)}
+                                    disabled={isAdding || loading || !dropdownSelectedModels.some((m) => m.category === category && m.name === name)}
+                                  >
+                                    {showHyperparameterConfig === `${category}-${name}-dropdown` ? "Hide" : "Configure"} Hyperparameters
+                                  </Button>
                                 </div>
-                              </DropdownMenuItem>
+                                {showHyperparameterConfig === `${category}-${name}-dropdown` && (
+                                  <div className="ml-6 p-4 border rounded-lg">
+                                    {(() => {
+                                      const model = dropdownSelectedModels.find((m) => m.category === category && m.name === name);
+                                      if (!model) return <p>Model not found</p>;
+                                      return renderHyperparameters(
+                                        { ...model.config, hyperparameters: model.config.hyperparameter_values }, // Pass values to UI
+                                        (modelType, param, value) => handleHyperparameterConfigChange(category, name, param, value, true),
+                                        () => handleAddLayer(name, `${category}-${name}`),
+                                        (modelType, index, field, value) => handleLayerChange(modelType, index, field, value, `${category}-${name}`),
+                                        Object.keys(neuralModels).includes(name),
+                                        modelCategories[category][name]
+                                      );
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
                             ))
                           )}
                         </div>
@@ -954,16 +1113,16 @@ export default function AdminPage() {
                   ))}
                 </div>
               )}
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle>Debug Classifications</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <pre>{JSON.stringify(newlyAddedClassification || classifications, null, 2)}</pre>
+                </CardContent>
+              </Card>
             </>
           )}
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle>Debug Classifications</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <pre>{JSON.stringify(newlyAddedClassification || classifications, null, 2)}</pre>
-            </CardContent>
-          </Card>
         </CardContent>
       </Card>
     </div>
